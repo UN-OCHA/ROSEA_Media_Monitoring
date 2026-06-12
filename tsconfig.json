@@ -16,7 +16,9 @@
   "include": [
     "src/**/*.ts",
     "api/**/*.ts",
-    "config/**/*.json"
+    "config/**/*.json",
+    "tests/**/*.ts",
+    "vitest.config.ts"
   ],
   "exclude": [
     "node_modules",
