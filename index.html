@@ -461,7 +461,12 @@ function logout(){
     document.getElementById("authOverlay").style.display="none";
     document.getElementById("app").style.display="block";
     document.getElementById("userPill").textContent=currentUser.name;
+    // Restore keyword and site state that was saved before last refresh
+    try{const k=sessionStorage.getItem("rosea_kw");if(k)customKeywords=JSON.parse(k);}catch(e){}
+    try{const cs=sessionStorage.getItem("rosea_sites");if(cs)customSites=JSON.parse(cs);}catch(e){}
     draw();
+    renderKwTags();
+    renderSiteTags();
   }
 })();
 
@@ -593,6 +598,7 @@ function removeKw(i){customKeywords.splice(i,1);renderKwTags();}
 function renderKwTags(){
   document.getElementById("kwTags").innerHTML=customKeywords.map((kw,i)=>
     `<span class="kw-tag">${kw}<button onclick="removeKw(${i})">&#xD7;</button></span>`).join("");
+  try{sessionStorage.setItem("rosea_kw",JSON.stringify(customKeywords));}catch(e){}
 }
 
 // ─── MEDIA SITES ──────────────────────────────────────────────
@@ -616,6 +622,7 @@ function renderSiteTags(){
   document.getElementById("siteTags").innerHTML=
     autoSites.map(s=>`<span class="site-tag auto-tag" title="From sweep list">${s}</span>`).join("")+
     customSites.map((s,i)=>`<span class="site-tag">${s}<button onclick="removeSite(${i})">&#xD7;</button></span>`).join("");
+  try{sessionStorage.setItem("rosea_sites",JSON.stringify(customSites));}catch(e){}
 }
 
 // ─── DRAW UI ──────────────────────────────────────────────────
@@ -751,13 +758,17 @@ async function proxyFetch(url,timeout=11000){
     // Accept only non-trivial responses (>80 chars avoids HTML error splash pages)
     const ok=v=>{if(!done&&v&&typeof v==="string"&&v.length>80){done=true;resolve(v);}};
     const fail=()=>{};
-    // Proxy 1 — allorigins.win (returns JSON wrapper {contents:...})
+    // Primary — own Vercel serverless proxy (server-side fetch, no CORS, no rate limits)
+    // Falls through to public proxies automatically if running locally without the function.
+    fetch(`/api/proxy?url=${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
+      .then(r=>r.ok?r.text():Promise.reject()).then(t=>ok(t)).catch(fail);
+    // Fallback 1 — allorigins.win (returns JSON wrapper {contents:...})
     fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
       .then(r=>r.json()).then(j=>{if(j&&j.contents)ok(j.contents);}).catch(fail);
-    // Proxy 2 — corsproxy.io (returns raw text)
+    // Fallback 2 — corsproxy.io (returns raw text)
     fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
       .then(r=>r.ok?r.text():Promise.reject()).then(t=>ok(t)).catch(fail);
-    // Proxy 3 — codetabs (third fallback, often succeeds when others are slow)
+    // Fallback 3 — codetabs
     fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
       .then(r=>r.ok?r.text():Promise.reject()).then(t=>ok(t)).catch(fail);
     // Hard deadline — resolves null so callers get a clean empty result
