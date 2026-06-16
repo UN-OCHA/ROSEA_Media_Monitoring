@@ -760,8 +760,14 @@ function mkSignal(ms){
 async function proxyFetch(url,timeout=11000){
   return new Promise(resolve=>{
     let done=false;
-    // Accept only non-trivial responses (>80 chars avoids HTML error splash pages)
-    const ok=v=>{if(!done&&v&&typeof v==="string"&&v.length>80){done=true;resolve(v);}};
+    // Only accept real XML/JSON — rejects HTML CAPTCHA/error pages that proxies sometimes return
+    const isUsable=v=>{
+      if(!v||typeof v!=="string"||v.length<80)return false;
+      const t=v.trimStart();
+      return t.startsWith("<?xml")||t.startsWith("<rss")||t.startsWith("<feed")||
+             t.startsWith("<channel")||t.startsWith("{")||t.startsWith("<rdf:");
+    };
+    const ok=v=>{if(!done&&isUsable(v)){done=true;resolve(v);}};
     const fail=()=>{};
     // Primary — own Vercel serverless proxy (server-side fetch, no CORS, no rate limits)
     // Falls through to public proxies automatically if running locally without the function.
