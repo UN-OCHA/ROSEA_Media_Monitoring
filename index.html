@@ -288,7 +288,8 @@ input[type=checkbox]{accent-color:var(--blue);width:14px;height:14px;cursor:poin
         <option value="reliefweb">ReliefWeb only</option>
         <option value="gdacs">GDACS only</option>
         <option value="googlenews">Google News only</option>
-        <option value="feeds">RSS feeds only (UN/WHO/FEWS)</option>
+        <option value="countrymedia">Country media RSS only</option>
+        <option value="feeds">RSS feeds only (UN/WHO/FEWS/Country)</option>
       </select>
     </div>
     <div class="field">
@@ -697,6 +698,7 @@ const HUM_KEYWORDS=["humanitarian","conflict","violence","armed","clashes","atta
 
 // These sources only publish humanitarian/disaster content — no keyword check needed
 const TRUSTED_HUM_SOURCES=new Set(["reliefweb","gdacs","unnews","who","fewsnet"]);
+// countrymedia articles still go through requiresKeyword (outlets cover all topics)
 
 function requiresKeyword(a){
   if(TRUSTED_HUM_SOURCES.has(a.dataSource))return true;
@@ -919,7 +921,95 @@ async function fetchAllAfrica(days){
   return results;
 }
 
-// ─── SOURCE 7: Google News RSS (with 3 speed modes) ──────────
+// ─── SOURCE 7: Direct RSS from country & regional media ───────
+// Sites known to have NO standard RSS feed — skip them
+const NO_RSS_SITES=new Set([
+  "kenyanews.go.ke","ena.et","sona.so","suna-sd.net","dailynews.co.tz",
+  "nbs.ug","adi.dj","asenatv.com","shabait.com","angop.ao",
+  "fanabc.com","abpinfo.bi","inside.news","nation.sc","jornalnoticias.co.mz",
+  "aimnews.org","nbcnews.na","nampa.org","dailynews.gov.bw","lesothotribune.co.ls"
+]);
+// Sites whose RSS is NOT at /feed/ — override URL here
+const CUSTOM_RSS_URL={
+  "monitor.co.ug":        "https://www.monitor.co.ug/rss/",
+  "newvision.co.ug":      "https://www.newvision.co.ug/rss/",
+  "nation.africa":        "https://nation.africa/kenya/rss/",
+  "standardmedia.co.ke":  "https://www.standardmedia.co.ke/rss/headlines.rss",
+  "the-star.co.ke":       "https://www.the-star.co.ke/rss/",
+  "citizen.digital":      "https://www.citizen.digital/feed",
+  "newtimes.co.rw":       "https://www.newtimes.co.rw/rss.xml",
+  "rwandatoday.africa":   "https://rwandatoday.africa/feed/",
+  "hiiraan.com":          "https://www.hiiraan.com/rss.aspx",
+  "radiotamazuj.org":     "https://radiotamazuj.org/en/rss.xml",
+  "sudantribune.com":     "https://www.sudantribune.com/spip.php?page=backend",
+  "darfur24.com":         "https://darfur24.com/feed/",
+  "ewn.co.za":            "https://ewn.co.za/RSS",
+  "news24.com":           "https://feeds.24.com/articles/news24/SouthAfrica/rss",
+  "mg.co.za":             "https://mg.co.za/feed/",
+  "iol.co.za":            "https://www.iol.co.za/rss/news",
+  "timeslive.co.za":      "https://www.timeslive.co.za/rss/",
+  "sabcnews.com":         "https://www.sabcnews.com/sabcnews/feed/",
+  "bulawayo24.com":       "https://bulawayo24.com/rss/",
+  "herald.co.zw":         "https://www.herald.co.zw/feed/",
+  "thecitizen.co.tz":     "https://www.thecitizen.co.tz/feed/",
+  "mwananchi.co.tz":      "https://www.mwananchi.co.tz/mw/rss",
+  "namibian.com.na":      "https://www.namibian.com.na/feed/",
+  "neweralive.na":        "https://neweralive.na/feed/",
+  "thenewhumanitarian.org":"https://www.thenewhumanitarian.org/rss.xml",
+  "theafricareport.com":  "https://www.theafricareport.com/feed/",
+  "rfi.fr":               "https://www.rfi.fr/en/rss",
+  "france24.com":         "https://www.france24.com/en/rss",
+  "voanews.com":          "https://www.voanews.com/api/zmoqkmsmiq",
+  "africanews.com":       "https://www.africanews.com/page/api/rss.xml",
+  "allafrica.com":        "https://allafrica.com/tools/headlines/rdf/africa/headlines.rdf",
+};
+
+async function fetchCountryMediaRSS(countries,days){
+  const results=[];
+  const since=Date.now()-(days*86400000);
+  const idMap=Object.fromEntries(COUNTRIES.map(([id,nm])=>[nm,id]));
+
+  // Build deduplicated list: {site, country}
+  const siteMap=new Map(); // site → country
+  for(const c of countries){
+    for(const site of (COUNTRY_MEDIA[idMap[c]]||[])){
+      if(!siteMap.has(site))siteMap.set(site,c);
+    }
+  }
+  for(const site of REGIONAL_MEDIA){
+    if(!siteMap.has(site))siteMap.set(site,"ROSEA region");
+  }
+
+  let done=0;
+  async function fetchSite(site,country){
+    if(NO_RSS_SITES.has(site))return;
+    const rssUrl=CUSTOM_RSS_URL[site]||`https://${site}/feed/`;
+    const text=await proxyFetch(rssUrl,10000);
+    if(!text)return;
+    for(const {title,desc,link,pubDate,source} of parseRSS(text)){
+      if(!title||!link)continue;
+      if(pubDate){const t=new Date(pubDate).getTime();if(!isNaN(t)&&t<since)continue;}
+      const matched=matchCountry(title+" "+desc)||country;
+      results.push({title,country:matched,
+        theme:detectTheme(title+" "+desc),severity:scoreSeverity(title+" "+desc),
+        summary:desc.slice(0,300)+(desc.length>300?"…":""),
+        date:pubDate?new Date(pubDate).toISOString().slice(0,10):"recent",
+        source:source||site,url:link,dataSource:"countrymedia"});
+    }
+    done++;
+    setStatus(`Country media RSS — ${done}/${siteMap.size} outlets…`);
+  }
+
+  const entries=[...siteMap.entries()];
+  const BATCH=8;
+  for(let i=0;i<entries.length;i+=BATCH){
+    await Promise.all(entries.slice(i,i+BATCH).map(([s,c])=>fetchSite(s,c)));
+    if(i+BATCH<entries.length)await new Promise(r=>setTimeout(r,200));
+  }
+  return results;
+}
+
+// ─── SOURCE 8: Google News RSS (with 3 speed modes) ──────────
 async function fetchGoogleNews(countries,days){
   const results=[];
   const since=Date.now()-(days*86400000);
@@ -1128,6 +1218,7 @@ async function runScan(){
   try{
     const isAll=srcSel==="all";
     const isFeeds=srcSel==="feeds";
+    const isCountryMedia=srcSel==="countrymedia";
 
     if(isAll||srcSel==="reliefweb"){
       setStatus("ReliefWeb — fetching OCHA reports…");setP(15);
@@ -1147,6 +1238,10 @@ async function runScan(){
       combined.push(...await fetchFEWSNET(days));setP(54);
       setStatus("AllAfrica — fetching Africa headlines RSS…");
       combined.push(...await fetchAllAfrica(days));setP(60);
+    }
+    if(isAll||isFeeds||isCountryMedia){
+      setStatus("Country & regional media — fetching RSS directly…");
+      combined.push(...await fetchCountryMediaRSS(countries,days));setP(75);
     }
     if(isAll||srcSel==="googlenews"){
       setStatus(`Google News [${modeLabel[mode]}] — ${countries.length} countries${customKeywords.length?" + "+customKeywords.length+" keywords":""}…`);
@@ -1204,7 +1299,8 @@ async function runScan(){
 // ─── POST-SCAN UI ─────────────────────────────────────────────
 const SOURCE_LABEL={
   reliefweb:"ReliefWeb",gdacs:"GDACS",unnews:"UN News",
-  who:"WHO",fewsnet:"FEWS NET",allafrica:"AllAfrica",googlenews:"Google News"
+  who:"WHO",fewsnet:"FEWS NET",allafrica:"AllAfrica",
+  countrymedia:"Country Media",googlenews:"Google News"
 };
 function buildSourceTabs(alerts){
   const srcs=["all",...new Set(alerts.map(a=>a.dataSource))];
