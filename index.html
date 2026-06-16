@@ -761,7 +761,7 @@ function parseRSS(xmlStr){
 // Google News (skipVercel=true) skips the Worker — Google blocks all datacenter IPs.
 
 // ← REPLACE with your Worker URL after deploying (see cloudflare-worker/worker.js)
-const CF_WORKER_URL="";
+const CF_WORKER_URL="https://dark-base-93a2.suubow47.workers.dev";
 
 function mkSignal(ms){
   try{return AbortSignal.timeout(ms);}
