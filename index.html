@@ -753,16 +753,23 @@ function parseRSS(xmlStr){
   }catch(e){return [];}
 }
 
-// ─── PROXY FETCH (races 3 proxies — whichever responds first wins) ────────────
-// Helper: safe AbortSignal.timeout() — falls back for older browsers
+// ─── PROXY FETCH ─────────────────────────────────────────────────────────────
+// Races up to 3 proxies — whichever returns valid XML/JSON first wins.
+// Primary: your own Cloudflare Worker (reliable, free, global edge, no blocked IPs).
+// Set CF_WORKER_URL below after deploying cloudflare-worker/worker.js.
+// Fallbacks: public proxies used automatically if Worker is not yet configured.
+// Google News (skipVercel=true) skips the Worker — Google blocks all datacenter IPs.
+
+// ← REPLACE with your Worker URL after deploying (see cloudflare-worker/worker.js)
+const CF_WORKER_URL="";
+
 function mkSignal(ms){
   try{return AbortSignal.timeout(ms);}
   catch(e){const c=new AbortController();setTimeout(()=>c.abort(),ms);return c.signal;}
 }
-async function proxyFetch(url,timeout=11000,skipVercel=false){
+async function proxyFetch(url,timeout=11000,skipWorker=false){
   return new Promise(resolve=>{
     let done=false;
-    // Only accept real XML/JSON — rejects HTML CAPTCHA/error pages that proxies sometimes return
     const isUsable=v=>{
       if(!v||typeof v!=="string"||v.length<80)return false;
       const t=v.trimStart();
@@ -771,21 +778,18 @@ async function proxyFetch(url,timeout=11000,skipVercel=false){
     };
     const ok=v=>{if(!done&&isUsable(v)){done=true;resolve(v);}};
     const fail=()=>{};
-    // Vercel proxy — skipped for news.google.com (Google blocks datacenter IPs for RSS)
-    if(!skipVercel){
-      fetch(`/api/proxy?url=${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
+    // Primary: Cloudflare Worker (best reliability — set CF_WORKER_URL above)
+    if(!skipWorker&&CF_WORKER_URL){
+      fetch(`${CF_WORKER_URL}?url=${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
         .then(r=>r.ok?r.text():Promise.reject()).then(t=>ok(t)).catch(fail);
     }
-    // allorigins.win (returns JSON wrapper {contents:...})
+    // Fallback 1: allorigins.win
     fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
       .then(r=>r.json()).then(j=>{if(j&&j.contents)ok(j.contents);}).catch(fail);
-    // corsproxy.io (returns raw text)
+    // Fallback 2: corsproxy.io
     fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
       .then(r=>r.ok?r.text():Promise.reject()).then(t=>ok(t)).catch(fail);
-    // codetabs
-    fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
-      .then(r=>r.ok?r.text():Promise.reject()).then(t=>ok(t)).catch(fail);
-    // Hard deadline — resolves null so callers get a clean empty result
+    // Hard deadline
     setTimeout(()=>{if(!done){done=true;resolve(null);}},timeout+500);
   });
 }
@@ -794,11 +798,13 @@ async function proxyFetch(url,timeout=11000,skipVercel=false){
 async function proxyFetchHTML(url,timeout=12000){
   return new Promise(resolve=>{
     let done=false;
-    // Accept any substantial HTML page (>500 chars); reject tiny error pages
     const ok=v=>{if(!done&&v&&typeof v==="string"&&v.length>500){done=true;resolve(v);}};
     const fail=()=>{};
-    fetch(`/api/proxy?url=${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
-      .then(r=>r.ok?r.text():Promise.reject()).then(t=>ok(t)).catch(fail);
+    // Cloudflare Worker (accepts HTML just fine)
+    if(CF_WORKER_URL){
+      fetch(`${CF_WORKER_URL}?url=${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
+        .then(r=>r.ok?r.text():Promise.reject()).then(t=>ok(t)).catch(fail);
+    }
     fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
       .then(r=>r.json()).then(j=>{if(j&&j.contents)ok(j.contents);}).catch(fail);
     fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
