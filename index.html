@@ -695,7 +695,11 @@ function filterByTheme(alerts){
 // Master list of humanitarian keywords — article must have at least one in title+summary
 const HUM_KEYWORDS=["humanitarian","conflict","violence","armed","clashes","attack","militia","rebel","war","airstrike","atrocity","refugee","displacement","idp","displaced","flee","asylum","camp","returnee","food insecurity","famine","hunger","malnutrition","ipc","starvation","crop failure","cholera","outbreak","epidemic","measles","mpox","malaria","ebola","polio","vaccination","disease","flood","cyclone","drought","earthquake","landslide","storm","disaster","emergency","crisis","casualties","deaths","killed","injured","evacuated","ceasefire","coup","protest","unrest","sanctions","relief","aid","humanitarian response","protection","insecurity","acute","wfp","unhcr","unicef","ocha","icrc","msf","save the children"];
 
+// These sources only publish humanitarian/disaster content — no keyword check needed
+const TRUSTED_HUM_SOURCES=new Set(["reliefweb","gdacs","unnews","who","fewsnet"]);
+
 function requiresKeyword(a){
+  if(TRUSTED_HUM_SOURCES.has(a.dataSource))return true;
   const txt=(a.title+" "+a.summary).toLowerCase();
   return HUM_KEYWORDS.some(k=>txt.includes(k))||customKeywords.some(k=>txt.includes(k.toLowerCase()));
 }
@@ -781,6 +785,11 @@ async function fetchReliefWeb(countries,days){
   const results=[];
   const since=new Date();since.setDate(since.getDate()-days);
   const sinceStr=since.toISOString().split("T")[0];
+  // ReliefWeb is a public CORS-enabled API — try direct fetch first, proxy as fallback
+  async function rwFetch(url){
+    try{const r=await fetch(url,{signal:mkSignal(12000)});if(r.ok)return r.text();}catch(e){}
+    return proxyFetch(url,12000);
+  }
   for(let i=0;i<countries.length;i+=5){
     const batch=countries.slice(i,i+5);
     const params=[
@@ -793,7 +802,7 @@ async function fetchReliefWeb(countries,days){
       ...batch.map((c,idx)=>`filter[conditions][1][conditions][${idx}][field]=primary_country.name&filter[conditions][1][conditions][${idx}][value]=${encodeURIComponent(c)}`),
       "sort[]=date.created:desc"
     ].join("&");
-    const text=await proxyFetch(`https://api.reliefweb.int/v1/reports?${params}`);
+    const text=await rwFetch(`https://api.reliefweb.int/v1/reports?${params}`);
     if(!text)continue;
     try{
       const data=JSON.parse(text);
@@ -1047,8 +1056,10 @@ async function fetchGoogleNews(countries,days){
   const BATCH=mode==="quick"?18:mode==="standard"?14:7;
   const DELAY=mode==="quick"?60:mode==="standard"?100:220;
   const TO   =mode==="quick"?10000:mode==="standard"?10000:12000;
-  // Server-side date hint — tells Google News to only index articles from the chosen window
-  const whenHint=days<=30?` when:${days}d`:"";
+  // Use when:7d as minimum so proxies see enough articles; client-side filter enforces exact window.
+  // Smaller values (when:1d) cause Google to return 0 results through proxy IPs.
+  const whenDays=Math.max(days,7);
+  const whenHint=` when:${whenDays}d`;
   let done=0;
 
   async function fetchOne({q,country}){
@@ -1156,7 +1167,17 @@ async function runScan(){
     setP(100);setStatus(false);
 
     if(!alerts.length){
-      document.getElementById("results").innerHTML=`<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:42px;height:42px;margin:0 auto 12px;opacity:.22;display:block"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49M7.76 16.24a6 6 0 0 1 0-8.49M20.07 4.93a10 10 0 0 1 0 14.14M3.93 19.07a10 10 0 0 1 0-14.14"/></svg><p>No alerts found. Try a longer time window or more countries.</p></div>`;
+      // Build per-source diagnostic to help user understand why results are empty
+      const srcCounts={};
+      combined.forEach(a=>{srcCounts[a.dataSource]=(srcCounts[a.dataSource]||0)+1;});
+      const srcSummary=Object.entries(srcCounts).map(([s,n])=>`${SOURCE_LABEL[s]||s}: ${n}`).join(" · ")||"All sources: 0";
+      const humCount=deduplicated.filter(a=>a.category==="Humanitarian").length;
+      document.getElementById("results").innerHTML=`<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:42px;height:42px;margin:0 auto 12px;opacity:.22;display:block"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49M7.76 16.24a6 6 0 0 1 0-8.49M20.07 4.93a10 10 0 0 1 0 14.14M3.93 19.07a10 10 0 0 1 0-14.14"/></svg>
+        <p><b>No humanitarian alerts found.</b></p>
+        <p style="font-size:12px;color:var(--text2);margin-top:6px">Collected: ${combined.length} raw · ${deduplicated.length} unique · ${humCount} humanitarian</p>
+        <p style="font-size:11px;color:var(--text2);margin-top:4px">${srcSummary}</p>
+        <p style="font-size:11px;color:var(--text2);margin-top:8px">Try: longer time window · more countries · different data source · or wait and retry if proxies are busy.</p>
+      </div>`;
     } else {
       allAlerts=alerts;allAlertsExport=[...alerts,...nonHumAlerts];activeTab="all";activeCountry="all";
       buildSourceTabs(alerts);buildCountryDropdown(alerts);
