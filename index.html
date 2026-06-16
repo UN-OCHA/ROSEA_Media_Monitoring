@@ -789,6 +789,84 @@ async function proxyFetch(url,timeout=11000){
   });
 }
 
+// Variant that accepts HTML — used for homepage scraping of sites without RSS
+async function proxyFetchHTML(url,timeout=12000){
+  return new Promise(resolve=>{
+    let done=false;
+    // Accept any substantial HTML page (>500 chars); reject tiny error pages
+    const ok=v=>{if(!done&&v&&typeof v==="string"&&v.length>500){done=true;resolve(v);}};
+    const fail=()=>{};
+    fetch(`/api/proxy?url=${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
+      .then(r=>r.ok?r.text():Promise.reject()).then(t=>ok(t)).catch(fail);
+    fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
+      .then(r=>r.json()).then(j=>{if(j&&j.contents)ok(j.contents);}).catch(fail);
+    fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
+      .then(r=>r.ok?r.text():Promise.reject()).then(t=>ok(t)).catch(fail);
+    setTimeout(()=>{if(!done){done=true;resolve(null);}},timeout+500);
+  });
+}
+
+// Helpers for HTML headline scraping
+function toAbsURL(href,site){
+  if(!href)return null;
+  if(href.startsWith("http"))return href;
+  if(href.startsWith("//"))return "https:"+href;
+  if(href.startsWith("/"))return `https://${site}${href}`;
+  return null;
+}
+function isArticleURL(url,site){
+  try{
+    const u=new URL(url);
+    const host=u.hostname.replace(/^www\./,"");
+    const siteClean=site.replace(/^www\./,"");
+    if(!host.includes(siteClean)&&!siteClean.includes(host))return false;
+    const p=u.pathname;
+    if(p.length<6||p==="/")return false;
+    // Skip category/nav pages
+    if(/\/(category|tag|author|page|section|search|about|contact|home|login|signup|register|rss|feed|terms|privacy|adverti|jobs|subscribe)\b/i.test(p))return false;
+    return true;
+  }catch(e){return false;}
+}
+
+// Scrape article headlines from a site's homepage for sites that have no RSS
+async function scrapeHeadlines(site,country){
+  const html=await proxyFetchHTML(`https://${site}/`,12000);
+  if(!html)return[];
+  const results=[];
+  try{
+    const dom=new DOMParser().parseFromString(html,"text/html");
+    // Remove clutter
+    for(const el of dom.querySelectorAll("nav,footer,aside,script,style,header,form,[class*=menu],[class*=sidebar],[class*=widget],[id*=menu],[id*=sidebar]"))el.remove();
+    const seen=new Set();
+    const push=(title,href)=>{
+      if(!title||title.length<20||title.length>280)return;
+      const url=toAbsURL(href,site);
+      if(!url||!isArticleURL(url,site))return;
+      const tk=title.slice(0,60).toLowerCase().replace(/\s+/g," ");
+      if(seen.has(tk))return;
+      seen.add(tk);
+      if(results.length>=20)return;
+      results.push({title:title.trim(),country:matchCountry(title)||country,
+        theme:detectTheme(title),severity:scoreSeverity(title),
+        summary:title.trim(),date:"recent",source:site,url,dataSource:"countrymedia"});
+    };
+    // Priority 1: headings that wrap or contain a link
+    for(const el of dom.querySelectorAll("h1 a,h2 a,h3 a,h4 a"))
+      push(el.textContent.trim(),el.getAttribute("href"));
+    // Priority 2: article/news class links
+    for(const el of dom.querySelectorAll("article a,[class*='title'] a,[class*='headline'] a,[class*='story'] a,[class*='post'] a"))
+      push(el.textContent.trim(),el.getAttribute("href"));
+    // Priority 3: any link with substantial text (last resort)
+    if(results.length<5){
+      for(const el of dom.querySelectorAll("a")){
+        if(el.textContent.trim().length>30)
+          push(el.textContent.trim(),el.getAttribute("href"));
+      }
+    }
+  }catch(e){}
+  return results;
+}
+
 // ─── SOURCE 1: ReliefWeb API ──────────────────────────────────
 async function fetchReliefWeb(countries,days){
   const results=[];
@@ -982,10 +1060,25 @@ async function fetchCountryMediaRSS(countries,days){
 
   let done=0;
   async function fetchSite(site,country){
-    if(NO_RSS_SITES.has(site))return;
+    // Sites with no RSS: scrape their homepage for headlines instead
+    if(NO_RSS_SITES.has(site)){
+      const scraped=await scrapeHeadlines(site,country);
+      results.push(...scraped);
+      done++;
+      setStatus(`Country media — ${done}/${siteMap.size} outlets…`);
+      return;
+    }
+    // Sites with RSS: fetch feed directly
     const rssUrl=CUSTOM_RSS_URL[site]||`https://${site}/feed/`;
     const text=await proxyFetch(rssUrl,10000);
-    if(!text)return;
+    if(!text){
+      // RSS fetch failed — fall back to homepage scraping
+      const scraped=await scrapeHeadlines(site,country);
+      results.push(...scraped);
+      done++;
+      setStatus(`Country media — ${done}/${siteMap.size} outlets…`);
+      return;
+    }
     for(const {title,desc,link,pubDate,source} of parseRSS(text)){
       if(!title||!link)continue;
       if(pubDate){const t=new Date(pubDate).getTime();if(!isNaN(t)&&t<since)continue;}
@@ -997,7 +1090,7 @@ async function fetchCountryMediaRSS(countries,days){
         source:source||site,url:link,dataSource:"countrymedia"});
     }
     done++;
-    setStatus(`Country media RSS — ${done}/${siteMap.size} outlets…`);
+    setStatus(`Country media — ${done}/${siteMap.size} outlets…`);
   }
 
   const entries=[...siteMap.entries()];
