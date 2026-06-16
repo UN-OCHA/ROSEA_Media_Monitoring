@@ -358,8 +358,8 @@ input[type=checkbox]{accent-color:var(--blue);width:14px;height:14px;cursor:poin
         <div class="src-item"><div class="src-dot" style="background:#C62828"></div>WHO disease outbreaks</div>
         <div class="src-item"><div class="src-dot" style="background:#4A148C"></div>FEWS NET food security</div>
         <div class="src-item"><div class="src-dot" style="background:#BF360C"></div>AllAfrica RSS</div>
-        <div class="src-item"><div class="src-dot" style="background:#880E4F"></div>Google News (incl. country media)</div>
-        <div class="src-item"><div class="src-dot" style="background:#006064"></div>The New Humanitarian</div>
+        <div class="src-item"><div class="src-dot" style="background:#006064"></div>Country media RSS (26 countries)</div>
+        <div class="src-item"><div class="src-dot" style="background:#880E4F"></div>Google News</div>
       </div>
     </div>
   </div>
@@ -368,7 +368,7 @@ input[type=checkbox]{accent-color:var(--blue);width:14px;height:14px;cursor:poin
   <div class="main">
     <div class="main-hdr">
       <h2>Humanitarian Intelligence Feed</h2>
-      <p>Maximum coverage across all ROSEA countries — ReliefWeb, GDACS, UN News, WHO, FEWS NET, AllAfrica, The New Humanitarian, and Google News including country-specific outlets from the sweep list.</p>
+      <p>Maximum coverage across all ROSEA countries — ReliefWeb, GDACS, UN News, WHO, FEWS NET, AllAfrica, country media RSS direct from 200+ outlets across 26 countries, and Google News.</p>
     </div>
     <div class="info-box" id="infoBox">
       <strong>7 data sources + optional AI analysis (OpenAI GPT-4o mini).</strong><br>
@@ -759,7 +759,7 @@ function mkSignal(ms){
   try{return AbortSignal.timeout(ms);}
   catch(e){const c=new AbortController();setTimeout(()=>c.abort(),ms);return c.signal;}
 }
-async function proxyFetch(url,timeout=11000){
+async function proxyFetch(url,timeout=11000,skipVercel=false){
   return new Promise(resolve=>{
     let done=false;
     // Only accept real XML/JSON — rejects HTML CAPTCHA/error pages that proxies sometimes return
@@ -771,17 +771,18 @@ async function proxyFetch(url,timeout=11000){
     };
     const ok=v=>{if(!done&&isUsable(v)){done=true;resolve(v);}};
     const fail=()=>{};
-    // Primary — own Vercel serverless proxy (server-side fetch, no CORS, no rate limits)
-    // Falls through to public proxies automatically if running locally without the function.
-    fetch(`/api/proxy?url=${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
-      .then(r=>r.ok?r.text():Promise.reject()).then(t=>ok(t)).catch(fail);
-    // Fallback 1 — allorigins.win (returns JSON wrapper {contents:...})
+    // Vercel proxy — skipped for news.google.com (Google blocks datacenter IPs for RSS)
+    if(!skipVercel){
+      fetch(`/api/proxy?url=${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
+        .then(r=>r.ok?r.text():Promise.reject()).then(t=>ok(t)).catch(fail);
+    }
+    // allorigins.win (returns JSON wrapper {contents:...})
     fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
       .then(r=>r.json()).then(j=>{if(j&&j.contents)ok(j.contents);}).catch(fail);
-    // Fallback 2 — corsproxy.io (returns raw text)
+    // corsproxy.io (returns raw text)
     fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
       .then(r=>r.ok?r.text():Promise.reject()).then(t=>ok(t)).catch(fail);
-    // Fallback 3 — codetabs
+    // codetabs
     fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
       .then(r=>r.ok?r.text():Promise.reject()).then(t=>ok(t)).catch(fail);
     // Hard deadline — resolves null so callers get a clean empty result
@@ -1255,7 +1256,7 @@ async function fetchGoogleNews(countries,days){
   async function fetchOne({q,country}){
     try{
       const rssUrl=`https://news.google.com/rss/search?q=${encodeURIComponent(q+whenHint)}&hl=en-US&gl=US&ceid=US:en`;
-      const text=await proxyFetch(rssUrl,TO);
+      const text=await proxyFetch(rssUrl,TO,true); // skipVercel — Google blocks datacenter IPs
       if(!text)return;
       for(const {title,desc,link,pubDate,source} of parseRSS(text)){
         if(!title)continue;
@@ -1689,7 +1690,7 @@ async function runAIAnalysis(){
 
   const prompt=`You are an Information Management Officer for OCHA ROSEA (Eastern and Southern Africa). Today is ${todayStr}.
 
-The ROSEA media monitoring system has collected the following ${list.length} articles from ReliefWeb, GDACS, UN News, WHO, FEWS NET, AllAfrica, and Google News across 25 ROSEA countries.
+The ROSEA media monitoring system has collected the following ${list.length} articles from ReliefWeb, GDACS, UN News, WHO, FEWS NET, AllAfrica, country media RSS, and Google News across 26 ROSEA countries.
 
 --- ARTICLES ---
 ${articleText}
