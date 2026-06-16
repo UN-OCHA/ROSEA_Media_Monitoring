@@ -562,7 +562,7 @@ const REGIONAL_MEDIA=["thenewhumanitarian.org","theafricareport.com","allafrica.
 
 // Known aggregator/scraper domains that republish content — filter these from results
 const BLOCKED_DOMAINS=new Set([
-  "newsnow.co.uk","newsnow.com","msn.com","news.google.com","flipboard.com",
+  "newsnow.co.uk","newsnow.com","msn.com","flipboard.com",
   "smartnews.com","feedly.com","inoreader.com","feedspot.com",
   "africafeeds.com","medafricatimes.com","panapress.com","cajnewsafrica.com",
   "devdiscourse.com","ibtimes.com","thezimbabwemail.com","masvingomirror.com",
@@ -745,7 +745,8 @@ function parseRSS(xmlStr){
       title:item.querySelector("title")?.textContent||"",
       desc:(item.querySelector("description")?.textContent||"").replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim(),
       link:item.querySelector("link")?.textContent||"",
-      pubDate:item.querySelector("pubDate")?.textContent||""
+      pubDate:item.querySelector("pubDate")?.textContent||"",
+      source:item.querySelector("source")?.textContent||""
     }));
   }catch(e){return [];}
 }
@@ -1067,7 +1068,7 @@ async function fetchGoogleNews(countries,days){
       const rssUrl=`https://news.google.com/rss/search?q=${encodeURIComponent(q+whenHint)}&hl=en-US&gl=US&ceid=US:en`;
       const text=await proxyFetch(rssUrl,TO);
       if(!text)return;
-      for(const {title,desc,link,pubDate} of parseRSS(text)){
+      for(const {title,desc,link,pubDate,source} of parseRSS(text)){
         if(!title)continue;
         // Client-side date backstop: reject if pubDate parses and is older than window
         if(pubDate){
@@ -1079,7 +1080,7 @@ async function fetchGoogleNews(countries,days){
           theme:detectTheme(title+" "+desc),severity:scoreSeverity(title+" "+desc),
           summary:desc.slice(0,320)+(desc.length>320?"…":""),
           date:pubDate?new Date(pubDate).toISOString().slice(0,10):"recent",
-          source:new DOMParser().parseFromString(text,"text/xml").querySelector("item source")?.textContent||"Google News",
+          source:source||"Google News",
           url:link,dataSource:"googlenews"});
       }
     }catch(e){}
