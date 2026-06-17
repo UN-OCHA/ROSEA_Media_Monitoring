@@ -95,6 +95,8 @@ select:focus{outline:none;border-color:var(--blue);}
 .kw-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;}
 .kw-tag{font-size:11px;padding:2px 7px;border-radius:99px;background:var(--purple-bg);color:var(--purple-text);border:1px solid #AFA9EC;display:flex;align-items:center;gap:3px;}
 .kw-tag button{background:none;border:none;cursor:pointer;color:var(--purple-text);font-size:13px;line-height:1;padding:0;}
+.kw-tag.ex-tag{background:var(--red-bg);color:var(--red-text);border-color:#F09595;}
+.kw-tag.ex-tag button{color:var(--red-text);}
 .site-tag{font-size:11px;padding:2px 7px;border-radius:99px;background:var(--teal-bg);color:var(--teal-text);border:1px solid #5DCAA5;display:flex;align-items:center;gap:3px;}
 .site-tag button{background:none;border:none;cursor:pointer;color:var(--teal-text);font-size:13px;line-height:1;padding:0;}
 .auto-tag{opacity:.6;}
@@ -325,6 +327,15 @@ input[type=checkbox]{accent-color:var(--blue);width:14px;height:14px;cursor:poin
     <div class="kw-tags" id="kwTags"></div>
 
     <hr>
+    <div class="slabel" style="margin-bottom:6px">Exclude keywords</div>
+    <p class="hint">Optional — filters out irrelevant results (e.g. sports, music, entertainment) before they're shown.</p>
+    <div class="add-row">
+      <input type="text" id="exKwInput" placeholder="Add keyword to exclude…" onkeydown="if(event.key==='Enter')addExKw()"/>
+      <button class="add-btn" onclick="addExKw()">Add</button>
+    </div>
+    <div class="kw-tags" id="exKwTags"></div>
+
+    <hr>
     <div class="slabel" style="margin-bottom:6px">Media sources</div>
     <div class="toggle-row">
       <input type="checkbox" id="useCountryMedia" checked onchange="renderSiteTags()"/>
@@ -369,6 +380,8 @@ input[type=checkbox]{accent-color:var(--blue);width:14px;height:14px;cursor:poin
         <div class="src-item media-item"><div class="src-dot" style="background:#006064"></div>Country media RSS (26 countries)</div>
         <div class="src-item media-item"><div class="src-dot" style="background:#880E4F"></div>Google News</div>
         <div class="src-item media-item"><div class="src-dot" style="background:#BF360C"></div>AllAfrica RSS</div>
+        <div class="src-item media-item"><div class="src-dot" style="background:#1A1A1A"></div>BBC Africa</div>
+        <div class="src-item media-item"><div class="src-dot" style="background:#FF7A00"></div>Al Jazeera</div>
       </div>
       <div class="src-subhdr">Humanitarian feeds</div>
       <div class="src-list">
@@ -385,12 +398,13 @@ input[type=checkbox]{accent-color:var(--blue);width:14px;height:14px;cursor:poin
   <div class="main">
     <div class="main-hdr">
       <h2>Humanitarian Intelligence Feed</h2>
-      <p>Maximum coverage across all ROSEA countries — ReliefWeb, GDACS, UN News, WHO, FEWS NET, AllAfrica, country media RSS direct from 200+ outlets across 26 countries, and Google News.</p>
+      <p>Maximum coverage across all ROSEA countries — ReliefWeb, GDACS, UN News, WHO, FEWS NET, AllAfrica, country media RSS direct from 200+ outlets across 26 countries, BBC and Al Jazeera Africa coverage, and Google News.</p>
     </div>
     <div class="info-box" id="infoBox">
-      <strong>7 data sources + optional AI analysis (OpenAI GPT-4o mini).</strong><br>
+      <strong>8 data sources + optional AI analysis (OpenAI GPT-4o mini).</strong><br>
       &bull; <strong>AI Analysis</strong> — enter your OpenAI key in the sidebar to generate a professional SITREP narrative, reclassify articles by theme, and score severity using GPT-4o mini (~$0.002 per scan).<br>
       &bull; <strong>Load sweep keywords</strong> — <em>optional</em>. Adds OCHA ROSEA keyword list as an extra search layer — scan always runs broadly without them.<br>
+      &bull; <strong>Exclude keywords</strong> — <em>optional</em>. Filters out irrelevant topics (sports, entertainment, etc.) at the search level and from results.<br>
       &bull; <strong>Scan speed</strong> — Quick (~20 s) for daily check; Full (~3 min) for maximum coverage.<br>
       &bull; <strong>Export</strong> — AI .doc SITREP, standard .doc report with links, .txt, or .csv for Excel.
     </div>
@@ -482,25 +496,31 @@ function logout(){
     // Restore keyword and site state that was saved before last refresh
     try{const k=sessionStorage.getItem("rosea_kw");if(k)customKeywords=JSON.parse(k);}catch(e){}
     try{const cs=sessionStorage.getItem("rosea_sites");if(cs)customSites=JSON.parse(cs);}catch(e){}
+    try{const ek=sessionStorage.getItem("rosea_exkw");if(ek)customExcludeKeywords=JSON.parse(ek);}catch(e){}
     draw();
     renderKwTags();
     renderSiteTags();
+    renderExKwTags();
   }
 })();
 
 // ─── DATA ─────────────────────────────────────────────────────
 const COUNTRIES=[
   ["angola","Angola"],["botswana","Botswana"],["burundi","Burundi"],["comoros","Comoros"],
-  ["djibouti","Djibouti"],["eritrea","Eritrea"],["eswatini","Eswatini"],["ethiopia","Ethiopia"],
+  ["djibouti","Djibouti"],["drc","DR Congo"],["eritrea","Eritrea"],["eswatini","Eswatini"],["ethiopia","Ethiopia"],
   ["kenya","Kenya"],["lesotho","Lesotho"],["madagascar","Madagascar"],["malawi","Malawi"],
   ["mauritius","Mauritius"],["mozambique","Mozambique"],["namibia","Namibia"],["rwanda","Rwanda"],
   ["seychelles","Seychelles"],["somalia","Somalia"],["south_africa","South Africa"],
   ["south_sudan","South Sudan"],["sudan","Sudan"],["tanzania","Tanzania"],
   ["uganda","Uganda"],["zambia","Zambia"],["zimbabwe","Zimbabwe"]
 ];
+// News text rarely uses ReliefWeb's official "Democratic Republic of the Congo" — match common aliases too
+const COUNTRY_ALIASES={drc:["dr congo","drc","democratic republic of congo","democratic republic of the congo","congo-kinshasa"]};
+// ReliefWeb's primary_country.name taxonomy differs from the display name for some countries
+const RELIEFWEB_NAME_OVERRIDE={"DR Congo":"Democratic Republic of the Congo"};
 const REGIONS=[
   {id:"horn",name:"Horn of Africa",ids:["djibouti","eritrea","ethiopia","kenya","somalia","south_sudan","sudan"]},
-  {id:"greatlakes",name:"Great Lakes",ids:["burundi","rwanda","tanzania","uganda"]},
+  {id:"greatlakes",name:"Great Lakes",ids:["burundi","drc","rwanda","tanzania","uganda"]},
   {id:"southern",name:"Southern Africa",ids:["angola","botswana","comoros","eswatini","lesotho","madagascar","malawi","mauritius","mozambique","namibia","seychelles","south_africa","zambia","zimbabwe"]}
 ];
 const THEMES=[
@@ -524,6 +544,7 @@ const COUNTRY_KW={
   burundi:["humanitarian crisis","floods","IDPs","displacement","refugees","food insecurity","cholera","measles","mpox","violence","landslide","heavy rainfall","insecurity","protection"],
   comoros:["floods","cyclone","disease outbreak"],
   djibouti:["humanitarian crisis","drought","displacement","refugees","food insecurity","cholera","protection concerns","aid response"],
+  drc:["humanitarian crisis","displacement","IDPs","refugees","food insecurity","cholera","measles","mpox","Ebola","malnutrition","conflict","violence","armed clashes","M23","ADF","insecurity","protection concerns","emergency response","humanitarian access","aid response"],
   eritrea:["humanitarian crisis","drought","displacement","refugees","food insecurity","conflict","armed clashes","disease outbreak","protection concerns","aid response"],
   eswatini:["humanitarian crisis","floods","drought","refugees","food insecurity","cholera","disease outbreak"],
   ethiopia:["humanitarian crisis","floods","drought","displacement","refugees","food insecurity","cholera","measles","mpox","malnutrition","earthquake","conflict","violence","armed clashes","emergency response","humanitarian access","landslide","insecurity","protection concerns","aid response"],
@@ -576,7 +597,7 @@ const COUNTRY_MEDIA={
   zimbabwe:["bulawayo24.com","cite.org.zw","newzimbabwe.com","herald.co.zw","theindependent.co.zw","newsday.co.zw","zimlive.com"]
 };
 // Regional outlets checked on every scan regardless of country selection
-const REGIONAL_MEDIA=["thenewhumanitarian.org","theafricareport.com","allafrica.com","africanews.com","rfi.fr","france24.com","voanews.com"];
+const REGIONAL_MEDIA=["thenewhumanitarian.org","theafricareport.com","allafrica.com","africanews.com","rfi.fr","france24.com","voanews.com","bbc.com","aljazeera.com"];
 
 // Known aggregator/scraper domains that republish content — filter these from results
 const BLOCKED_DOMAINS=new Set([
@@ -591,7 +612,7 @@ const BLOCKED_DOMAINS=new Set([
 let sc=new Set(COUNTRIES.map(x=>x[0]));
 let st=new Set(THEMES.map(x=>x[0]));
 let allAlerts=[];let allAlertsExport=[];let activeTab="all";let activeCountry="all";
-let customKeywords=[];let customSites=[];
+let customKeywords=[];let customSites=[];let customExcludeKeywords=[];
 let collapsed={horn:false,greatlakes:false,southern:false};
 
 // ─── SWEEP KEYWORDS ───────────────────────────────────────────
@@ -617,6 +638,25 @@ function renderKwTags(){
   document.getElementById("kwTags").innerHTML=customKeywords.map((kw,i)=>
     `<span class="kw-tag">${kw}<button onclick="removeKw(${i})">&#xD7;</button></span>`).join("");
   try{sessionStorage.setItem("rosea_kw",JSON.stringify(customKeywords));}catch(e){}
+}
+
+// ─── EXCLUDE KEYWORDS ───────────────────────────────────────────
+function addExKw(){
+  const inp=document.getElementById("exKwInput"),val=inp.value.trim();
+  if(!val)return;
+  val.split(",").map(v=>v.trim()).filter(Boolean).forEach(v=>{if(!customExcludeKeywords.includes(v))customExcludeKeywords.push(v);});
+  inp.value="";renderExKwTags();
+}
+function removeExKw(i){customExcludeKeywords.splice(i,1);renderExKwTags();}
+function renderExKwTags(){
+  document.getElementById("exKwTags").innerHTML=customExcludeKeywords.map((kw,i)=>
+    `<span class="kw-tag ex-tag">${kw}<button onclick="removeExKw(${i})">&#xD7;</button></span>`).join("");
+  try{sessionStorage.setItem("rosea_exkw",JSON.stringify(customExcludeKeywords));}catch(e){}
+}
+function isExcluded(a){
+  if(!customExcludeKeywords.length)return false;
+  const txt=(a.title+" "+a.summary).toLowerCase();
+  return customExcludeKeywords.some(k=>txt.includes(k.toLowerCase()));
 }
 
 // ─── MEDIA SITES ──────────────────────────────────────────────
@@ -763,7 +803,12 @@ function capByTopic(alerts,cap=6){
 }
 function matchCountry(combined){
   const t=combined.toLowerCase();
-  for(const [id,nm] of COUNTRIES){if(sc.has(id)&&t.includes(nm.toLowerCase()))return nm;}
+  for(const [id,nm] of COUNTRIES){
+    if(!sc.has(id))continue;
+    if(t.includes(nm.toLowerCase()))return nm;
+    const aliases=COUNTRY_ALIASES[id];
+    if(aliases&&aliases.some(a=>t.includes(a)))return nm;
+  }
   return null;
 }
 function parseRSS(xmlStr){
@@ -919,16 +964,18 @@ async function fetchReliefWeb(countries,days){
       "filter[operator]=AND",`filter[conditions][0][field]=date.created`,
       `filter[conditions][0][value][from]=${sinceStr}T00:00:00%2B00:00`,
       "filter[conditions][1][operator]=OR",
-      ...batch.map((c,idx)=>`filter[conditions][1][conditions][${idx}][field]=primary_country.name&filter[conditions][1][conditions][${idx}][value]=${encodeURIComponent(c)}`),
+      ...batch.map((c,idx)=>`filter[conditions][1][conditions][${idx}][field]=primary_country.name&filter[conditions][1][conditions][${idx}][value]=${encodeURIComponent(RELIEFWEB_NAME_OVERRIDE[c]||c)}`),
       "sort[]=date.created:desc"
     ].join("&");
     const text=await rwFetch(`https://api.reliefweb.int/v1/reports?${params}`);
     if(!text)continue;
     try{
       const data=JSON.parse(text);
+      const rwNameToDisplay=Object.fromEntries(Object.entries(RELIEFWEB_NAME_OVERRIDE).map(([k,v])=>[v,k]));
       for(const item of(data.data||[])){
         const f=item.fields||{};
-        const country=(f.primary_country&&f.primary_country.name)||"";
+        const rwCountry=(f.primary_country&&f.primary_country.name)||"";
+        const country=rwNameToDisplay[rwCountry]||rwCountry;
         const rawBody=(f.body||"").replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim();
         const combined=f.title+" "+rawBody;
         results.push({title:f.title||"Untitled",country,theme:detectTheme(combined),severity:scoreSeverity(combined),
@@ -1042,6 +1089,8 @@ const NO_RSS_SITES=new Set([
 ]);
 // Sites whose RSS is NOT at /feed/ — override URL here
 const CUSTOM_RSS_URL={
+  "bbc.com":              "https://feeds.bbci.co.uk/news/world/africa/rss.xml",
+  "aljazeera.com":        "https://www.aljazeera.com/xml/rss/all.xml",
   "monitor.co.ug":        "https://www.monitor.co.ug/rss/",
   "newvision.co.ug":      "https://www.newvision.co.ug/rss/",
   "nation.africa":        "https://nation.africa/kenya/rss/",
@@ -1150,7 +1199,7 @@ async function fetchGoogleNews(countries,days){
   const ORG_KW=`OCHA OR UNHCR OR WFP OR UNICEF OR ICRC OR MSF OR "humanitarian crisis"`;
 
   // Pan-African outlets always searched (very high signal-to-noise)
-  const PAN_AFRICAN=["allafrica.com","thenewhumanitarian.org","theafricareport.com"];
+  const PAN_AFRICAN=["allafrica.com","thenewhumanitarian.org","theafricareport.com","bbc.com","aljazeera.com"];
 
   // Regional group terminology catches multi-country articles
   const REGIONAL=[
@@ -1283,11 +1332,16 @@ async function fetchGoogleNews(countries,days){
   // Smaller values (when:1d) cause Google to return 0 results through proxy IPs.
   const whenDays=Math.max(days,7);
   const whenHint=` when:${whenDays}d`;
+  // Exclude terms applied at the query level (Google supports -term syntax) so unwanted
+  // results (sports, entertainment, etc.) never come back in the first place.
+  const excludeHint=customExcludeKeywords.length
+    ?" "+customExcludeKeywords.map(k=>k.includes(" ")?`-"${k}"`:`-${k}`).join(" ")
+    :"";
   let done=0;
 
   async function fetchOne({q,country}){
     try{
-      const rssUrl=`https://news.google.com/rss/search?q=${encodeURIComponent(q+whenHint)}&hl=en-US&gl=US&ceid=US:en`;
+      const rssUrl=`https://news.google.com/rss/search?q=${encodeURIComponent(q+whenHint+excludeHint)}&hl=en-US&gl=US&ceid=US:en`;
       const text=await proxyFetch(rssUrl,TO,true); // skipVercel — Google blocks datacenter IPs
       if(!text)return;
       for(const {title,desc,link,pubDate,source} of parseRSS(text)){
@@ -1381,6 +1435,7 @@ async function runScan(){
     setStatus("Deduplicating and ranking results…");
     // 1. Filter to selected themes, 2. Dedup, 3. Tag each article as Humanitarian or Non-Humanitarian,
     //    4. Split: humanitarian goes to display, both go to export
+    if(customExcludeKeywords.length)combined=combined.filter(a=>!isExcluded(a));
     const deduplicated=dedup(filterByTheme(combined));
     deduplicated.forEach(a=>{a.category=requiresKeyword(a)?"Humanitarian":"Non-Humanitarian";});
     let alerts=capByTopic(deduplicated.filter(a=>a.category==="Humanitarian"));
