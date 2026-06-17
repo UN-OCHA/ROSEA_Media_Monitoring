@@ -656,7 +656,7 @@ function renderExKwTags(){
 function isExcluded(a){
   if(!customExcludeKeywords.length)return false;
   const txt=(a.title+" "+a.summary).toLowerCase();
-  return customExcludeKeywords.some(k=>txt.includes(k.toLowerCase()));
+  return customExcludeKeywords.some(k=>kwHit(txt,k));
 }
 
 // ─── MEDIA SITES ──────────────────────────────────────────────
@@ -700,9 +700,13 @@ function draw(){
     const col=collapsed[reg.id];
     const sel=ccs.filter(([id])=>sc.has(id)).length;
     html+=`<div class="region-group">
-      <div class="region-hdr" onclick="toggleRegion('${reg.id}')">
-        <span class="region-name">${reg.name} <span class="cnt">${sel}/${ccs.length}</span></span>
-        <span class="region-arrow">${col?"&#9658;":"&#9660;"}</span>
+      <div class="region-hdr">
+        <span class="region-name" onclick="toggleRegion('${reg.id}')">${reg.name} <span class="cnt">${sel}/${ccs.length}</span></span>
+        <span class="qa">
+          <span class="ql" onclick="selRegion('${reg.id}')">all</span>
+          <span class="ql" onclick="clrRegion('${reg.id}')">none</span>
+          <span class="region-arrow" onclick="toggleRegion('${reg.id}')">${col?"&#9658;":"&#9660;"}</span>
+        </span>
       </div>
       <div class="region-tags${col?" collapsed":""}">
         ${ccs.map(([id,nm])=>`<span class="tag${sc.has(id)?" on":""}" onclick="tC('${id}')">${nm}</span>`).join("")}
@@ -715,6 +719,8 @@ function draw(){
   document.getElementById("cc").textContent=sc.size;
 }
 function toggleRegion(id){collapsed[id]=!collapsed[id];draw();}
+function selRegion(id){const reg=REGIONS.find(r=>r.id===id);if(!reg)return;reg.ids.forEach(cid=>sc.add(cid));draw();renderSiteTags();}
+function clrRegion(id){const reg=REGIONS.find(r=>r.id===id);if(!reg)return;reg.ids.forEach(cid=>sc.delete(cid));draw();renderSiteTags();}
 function tC(id){sc.has(id)?sc.delete(id):sc.add(id);draw();renderSiteTags();}
 function tT(id){st.has(id)?st.delete(id):st.add(id);draw();}
 function selAll(){sc=new Set(COUNTRIES.map(x=>x[0]));draw();renderSiteTags();}
@@ -734,10 +740,22 @@ function clrRes(){
 }
 
 // ─── HELPERS ──────────────────────────────────────────────────
+// Shared keyword matcher used everywhere a keyword list is checked against text.
+// Single words use \b word-boundary regex so "war" doesn't match inside "award"/"software",
+// and "aid" doesn't match inside "raid"/"said". Multi-word phrases use plain substring
+// (boundary risk is negligible for whole phrases like "world cup").
+const _kwRe={};
+function kwHit(lowerText,kw){
+  const k=kw.toLowerCase().trim();
+  if(!k)return false;
+  if(k.includes(" "))return lowerText.includes(k);
+  if(!_kwRe[k])_kwRe[k]=new RegExp(`\\b${k.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")}\\b`);
+  return _kwRe[k].test(lowerText);
+}
 function detectTheme(text){
   const t=(text||"").toLowerCase();let best="",bestScore=0;
   for(const [th,keys] of Object.entries(THEME_KEYS)){
-    const s=keys.filter(k=>t.includes(k)).length;if(s>bestScore){bestScore=s;best=th;}
+    const s=keys.filter(k=>kwHit(t,k)).length;if(s>bestScore){bestScore=s;best=th;}
   }
   const map={conflict:"Conflict & insecurity",displacement:"Displacement & refugees",
     food:"Food insecurity & famine",health:"Health emergencies",
@@ -746,9 +764,9 @@ function detectTheme(text){
 }
 function scoreSeverity(text){
   const t=(text||"").toLowerCase();
-  if(["famine","level 3","l3 emergency","catastrophic","mass atrocity","thousands killed","mass displacement","genocide"].some(k=>t.includes(k)))return "critical";
-  if(["conflict","flood","cyclone","drought","displaced","outbreak","hunger","crisis","emergency","attack","deaths","casualties","evacuated","ipc phase 4","ipc phase 5","acute malnutrition","cholera","armed clashes","violence","famine","landslide","heavy rainfall"].some(k=>t.includes(k)))return "high";
-  if(["concern","alert","warning","deteriorating","worsening","affected","at risk","ipc phase 3","insecurity","protection","displacement","disease"].some(k=>t.includes(k)))return "medium";
+  if(["famine","level 3","l3 emergency","catastrophic","mass atrocity","thousands killed","mass displacement","genocide"].some(k=>kwHit(t,k)))return "critical";
+  if(["conflict","flood","cyclone","drought","displaced","outbreak","hunger","crisis","emergency","attack","deaths","casualties","evacuated","ipc phase 4","ipc phase 5","acute malnutrition","cholera","armed clashes","violence","famine","landslide","heavy rainfall"].some(k=>kwHit(t,k)))return "high";
+  if(["concern","alert","warning","deteriorating","worsening","affected","at risk","ipc phase 3","insecurity","protection","displacement","disease"].some(k=>kwHit(t,k)))return "medium";
   return "monitor";
 }
 function filterByTheme(alerts){
@@ -769,7 +787,7 @@ const TRUSTED_HUM_SOURCES=new Set(["reliefweb","gdacs","unnews","who","fewsnet"]
 function requiresKeyword(a){
   if(TRUSTED_HUM_SOURCES.has(a.dataSource))return true;
   const txt=(a.title+" "+a.summary).toLowerCase();
-  return HUM_KEYWORDS.some(k=>txt.includes(k))||customKeywords.some(k=>txt.includes(k.toLowerCase()));
+  return HUM_KEYWORDS.some(k=>kwHit(txt,k))||customKeywords.some(k=>kwHit(txt,k));
 }
 
 function dedup(alerts){
@@ -801,6 +819,24 @@ function capByTopic(alerts,cap=6){
     return counts[k]<=cap;
   });
 }
+// Regional terminology — lets genuinely region-wide articles ("drought across East Africa")
+// still match even though they name no specific country, as long as a country from that
+// region is currently selected. Without this, requiring an exact country match would drop them.
+const REGION_ALIASES={
+  "horn of africa":["horn"],"great lakes":["greatlakes"],"great lakes region":["greatlakes"],
+  "southern africa":["southern"],"east africa":["horn","greatlakes"],"eastern africa":["horn","greatlakes"]
+};
+function matchRegion(t){
+  for(const [term,regionIds] of Object.entries(REGION_ALIASES)){
+    if(!t.includes(term))continue;
+    const live=regionIds.some(rid=>{
+      const reg=REGIONS.find(r=>r.id===rid);
+      return reg&&reg.ids.some(cid=>sc.has(cid));
+    });
+    if(live)return term.replace(/\b\w/g,c=>c.toUpperCase());
+  }
+  return null;
+}
 function matchCountry(combined){
   const t=combined.toLowerCase();
   for(const [id,nm] of COUNTRIES){
@@ -809,7 +845,7 @@ function matchCountry(combined){
     const aliases=COUNTRY_ALIASES[id];
     if(aliases&&aliases.some(a=>t.includes(a)))return nm;
   }
-  return null;
+  return matchRegion(t);
 }
 function parseRSS(xmlStr){
   try{
@@ -907,7 +943,7 @@ function isArticleURL(url,site){
 }
 
 // Scrape article headlines from a site's homepage for sites that have no RSS
-async function scrapeHeadlines(site,country){
+async function scrapeHeadlines(site,country,isRegional=false){
   const html=await proxyFetchHTML(`https://${site}/`,12000);
   if(!html)return[];
   const results=[];
@@ -924,7 +960,9 @@ async function scrapeHeadlines(site,country){
       if(seen.has(tk))return;
       seen.add(tk);
       if(results.length>=20)return;
-      results.push({title:title.trim(),country:matchCountry(title)||country,
+      const matched=matchCountry(title);
+      if(!matched&&isRegional)return; // generic wire — only keep headlines naming a selected country/region
+      results.push({title:title.trim(),country:matched||country,
         theme:detectTheme(title),severity:scoreSeverity(title),
         summary:title.trim(),date:"recent",source:site,url,dataSource:"countrymedia"});
     };
@@ -1016,7 +1054,7 @@ async function fetchUNNews(days){
   for(const {title,desc,link,pubDate} of parseRSS(text)){
     if(!title)continue;
     if(pubDate){const t=new Date(pubDate).getTime();if(!isNaN(t)&&t<since)continue;}
-    const c=matchCountry(title+" "+desc)||"Africa";
+    const c=matchCountry(title+" "+desc);if(!c)continue;
     results.push({title,country:c,theme:detectTheme(title+" "+desc),severity:scoreSeverity(title+" "+desc),
       summary:desc.slice(0,300)+(desc.length>300?"…":""),
       date:pubDate?new Date(pubDate).toISOString().slice(0,10):"recent",
@@ -1034,7 +1072,7 @@ async function fetchWHO(days){
   for(const {title,desc,link,pubDate} of parseRSS(text)){
     if(!title)continue;
     if(pubDate){const t=new Date(pubDate).getTime();if(!isNaN(t)&&t<since)continue;}
-    const c=matchCountry(title+" "+desc)||"Africa";
+    const c=matchCountry(title+" "+desc);if(!c)continue;
     results.push({title,country:c,theme:"Health emergencies",severity:scoreSeverity(title+" "+desc),
       summary:desc.slice(0,300)+(desc.length>300?"…":""),
       date:pubDate?new Date(pubDate).toISOString().slice(0,10):"recent",
@@ -1052,7 +1090,7 @@ async function fetchFEWSNET(days){
   for(const {title,desc,link,pubDate} of parseRSS(text)){
     if(!title)continue;
     if(pubDate){const t=new Date(pubDate).getTime();if(!isNaN(t)&&t<since)continue;}
-    const c=matchCountry(title+" "+desc)||"Africa";
+    const c=matchCountry(title+" "+desc);if(!c)continue;
     results.push({title,country:c,theme:"Food insecurity & famine",severity:scoreSeverity(title+" "+desc),
       summary:desc.slice(0,300)+(desc.length>300?"…":""),
       date:pubDate?new Date(pubDate).toISOString().slice(0,10):"recent",
@@ -1142,9 +1180,13 @@ async function fetchCountryMediaRSS(countries,days){
 
   let done=0;
   async function fetchSite(site,country){
+    // Regional/international wires (BBC, Al Jazeera, AllAfrica, etc.) cover the whole continent —
+    // only keep their articles when one is about a selected country/region, otherwise every scan
+    // would leak in news about countries that were never selected.
+    const isRegional=REGIONAL_MEDIA.includes(site);
     // Sites with no RSS: scrape their homepage for headlines instead
     if(NO_RSS_SITES.has(site)){
-      const scraped=await scrapeHeadlines(site,country);
+      const scraped=await scrapeHeadlines(site,country,isRegional);
       results.push(...scraped);
       done++;
       setStatus(`Country media — ${done}/${siteMap.size} outlets…`);
@@ -1155,7 +1197,7 @@ async function fetchCountryMediaRSS(countries,days){
     const text=await proxyFetch(rssUrl,10000);
     if(!text){
       // RSS fetch failed — fall back to homepage scraping
-      const scraped=await scrapeHeadlines(site,country);
+      const scraped=await scrapeHeadlines(site,country,isRegional);
       results.push(...scraped);
       done++;
       setStatus(`Country media — ${done}/${siteMap.size} outlets…`);
@@ -1164,8 +1206,9 @@ async function fetchCountryMediaRSS(countries,days){
     for(const {title,desc,link,pubDate,source} of parseRSS(text)){
       if(!title||!link)continue;
       if(pubDate){const t=new Date(pubDate).getTime();if(!isNaN(t)&&t<since)continue;}
-      const matched=matchCountry(title+" "+desc)||country;
-      results.push({title,country:matched,
+      const matched=matchCountry(title+" "+desc);
+      if(!matched&&isRegional)continue;
+      results.push({title,country:matched||country,
         theme:detectTheme(title+" "+desc),severity:scoreSeverity(title+" "+desc),
         summary:desc.slice(0,300)+(desc.length>300?"…":""),
         date:pubDate?new Date(pubDate).toISOString().slice(0,10):"recent",
@@ -1344,6 +1387,11 @@ async function fetchGoogleNews(countries,days){
       const rssUrl=`https://news.google.com/rss/search?q=${encodeURIComponent(q+whenHint+excludeHint)}&hl=en-US&gl=US&ceid=US:en`;
       const text=await proxyFetch(rssUrl,TO,true); // skipVercel — Google blocks datacenter IPs
       if(!text)return;
+      // Per-country queries (q contains "Country Name") are already scoped by the search
+      // itself, so a generic fallback is safe. Broad/org/regional queries (country:"ROSEA region"
+      // or a region label) carry no such guarantee — require an explicit match or drop, so
+      // results never leak in coverage about countries that were never selected.
+      const isPerCountryQuery=COUNTRIES.some(([,nm])=>nm===country);
       for(const {title,desc,link,pubDate,source} of parseRSS(text)){
         if(!title)continue;
         // Client-side date backstop: reject if pubDate parses and is older than window
@@ -1351,8 +1399,9 @@ async function fetchGoogleNews(countries,days){
           const t=new Date(pubDate).getTime();
           if(!isNaN(t)&&t<since)continue;
         }
-        const matched=matchCountry(title+" "+desc)||country;
-        results.push({title,country:matched,
+        const matched=matchCountry(title+" "+desc);
+        if(!matched&&!isPerCountryQuery)continue;
+        results.push({title,country:matched||country,
           theme:detectTheme(title+" "+desc),severity:scoreSeverity(title+" "+desc),
           summary:desc.slice(0,320)+(desc.length>320?"…":""),
           date:pubDate?new Date(pubDate).toISOString().slice(0,10):"recent",
