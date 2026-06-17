@@ -113,6 +113,12 @@ input[type=checkbox]{accent-color:var(--blue);width:14px;height:14px;cursor:poin
 .src-list{display:flex;flex-direction:column;gap:5px;}
 .src-item{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--text2);}
 .src-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+.src-item.media-item{font-weight:600;color:var(--text);}
+.src-subhdr{font-size:9px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);margin:9px 0 5px;}
+.src-ck-group{display:flex;flex-direction:column;gap:3px;}
+.src-ck{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);padding:1px 0;cursor:pointer;user-select:none;}
+.src-ck input{cursor:pointer;accent-color:var(--blue);width:13px;height:13px;flex-shrink:0;}
+.src-ck.all-ck{margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-weight:600;color:var(--text);}
 
 /* ── MAIN ── */
 .main-hdr{margin-bottom:18px;}
@@ -282,15 +288,22 @@ input[type=checkbox]{accent-color:var(--blue);width:14px;height:14px;cursor:poin
       </select>
     </div>
     <div class="field">
-      <label>Data source</label>
-      <select id="srcSel">
-        <option value="all" selected>All sources</option>
-        <option value="reliefweb">ReliefWeb only</option>
-        <option value="gdacs">GDACS only</option>
-        <option value="googlenews">Google News only</option>
-        <option value="countrymedia">Country media RSS only</option>
-        <option value="feeds">RSS feeds only (UN/WHO/FEWS/Country)</option>
-      </select>
+      <label>Data sources</label>
+      <div class="src-subhdr" style="margin-top:2px">Media outlets</div>
+      <div class="src-ck-group">
+        <label class="src-ck"><input type="checkbox" id="src_countrymedia" checked onchange="syncSrcAll()">Country media RSS (26 countries)</label>
+        <label class="src-ck"><input type="checkbox" id="src_googlenews" checked onchange="syncSrcAll()">Google News</label>
+        <label class="src-ck"><input type="checkbox" id="src_allafrica" checked onchange="syncSrcAll()">AllAfrica RSS</label>
+      </div>
+      <div class="src-subhdr">Humanitarian feeds</div>
+      <div class="src-ck-group">
+        <label class="src-ck"><input type="checkbox" id="src_reliefweb" checked onchange="syncSrcAll()">ReliefWeb API (OCHA)</label>
+        <label class="src-ck"><input type="checkbox" id="src_gdacs" checked onchange="syncSrcAll()">GDACS disaster alerts</label>
+        <label class="src-ck"><input type="checkbox" id="src_unnews" checked onchange="syncSrcAll()">UN News — Africa</label>
+        <label class="src-ck"><input type="checkbox" id="src_who" checked onchange="syncSrcAll()">WHO disease outbreaks</label>
+        <label class="src-ck"><input type="checkbox" id="src_fewsnet" checked onchange="syncSrcAll()">FEWS NET food security</label>
+      </div>
+      <label class="src-ck all-ck"><input type="checkbox" id="src_all" checked onchange="toggleAllSrcs(this)">All sources</label>
     </div>
     <div class="field">
       <label>Scan speed</label>
@@ -351,15 +364,19 @@ input[type=checkbox]{accent-color:var(--blue);width:14px;height:14px;cursor:poin
 
     <div class="src-section">
       <div class="src-title">Sources searched</div>
+      <div class="src-subhdr" style="margin-top:0">Media outlets</div>
+      <div class="src-list">
+        <div class="src-item media-item"><div class="src-dot" style="background:#006064"></div>Country media RSS (26 countries)</div>
+        <div class="src-item media-item"><div class="src-dot" style="background:#880E4F"></div>Google News</div>
+        <div class="src-item media-item"><div class="src-dot" style="background:#BF360C"></div>AllAfrica RSS</div>
+      </div>
+      <div class="src-subhdr">Humanitarian feeds</div>
       <div class="src-list">
         <div class="src-item"><div class="src-dot" style="background:#2E7D32"></div>ReliefWeb API (OCHA)</div>
         <div class="src-item"><div class="src-dot" style="background:#E65100"></div>GDACS disaster alerts</div>
         <div class="src-item"><div class="src-dot" style="background:#1565C0"></div>UN News — Africa feed</div>
         <div class="src-item"><div class="src-dot" style="background:#C62828"></div>WHO disease outbreaks</div>
         <div class="src-item"><div class="src-dot" style="background:#4A148C"></div>FEWS NET food security</div>
-        <div class="src-item"><div class="src-dot" style="background:#BF360C"></div>AllAfrica RSS</div>
-        <div class="src-item"><div class="src-dot" style="background:#006064"></div>Country media RSS (26 countries)</div>
-        <div class="src-item"><div class="src-dot" style="background:#880E4F"></div>Google News</div>
       </div>
     </div>
   </div>
@@ -624,6 +641,15 @@ function renderSiteTags(){
     autoSites.map(s=>`<span class="site-tag auto-tag" title="From sweep list">${s}</span>`).join("")+
     customSites.map((s,i)=>`<span class="site-tag">${s}<button onclick="removeSite(${i})">&#xD7;</button></span>`).join("");
   try{sessionStorage.setItem("rosea_sites",JSON.stringify(customSites));}catch(e){}
+}
+
+// ─── DATA SOURCE CHECKBOXES ─────────────────────────────────────
+const SRC_IDS=["src_countrymedia","src_googlenews","src_allafrica","src_reliefweb","src_gdacs","src_unnews","src_who","src_fewsnet"];
+function toggleAllSrcs(cb){
+  SRC_IDS.forEach(id=>document.getElementById(id).checked=cb.checked);
+}
+function syncSrcAll(){
+  document.getElementById("src_all").checked=SRC_IDS.every(id=>document.getElementById(id).checked);
 }
 
 // ─── DRAW UI ──────────────────────────────────────────────────
@@ -1304,7 +1330,8 @@ async function runScan(){
 
   const countries=COUNTRIES.filter(x=>sc.has(x[0])).map(x=>x[1]);
   const days=parseInt(document.getElementById("tf").value);
-  const srcSel=document.getElementById("srcSel").value;
+  const src=Object.fromEntries(SRC_IDS.map(id=>[id.replace("src_",""),document.getElementById(id).checked]));
+  if(!Object.values(src).some(Boolean)){showErr("Select at least one data source.");btn.disabled=false;btn.innerHTML=`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49M7.76 16.24a6 6 0 0 1 0-8.49M20.07 4.93a10 10 0 0 1 0 14.14M3.93 19.07a10 10 0 0 1 0-14.14"/></svg> Run scan`;return;}
   const mode=document.getElementById("scanMode").value;
   const modeLabel={quick:"Quick",standard:"Standard",full:"Full"};
 
@@ -1316,34 +1343,36 @@ async function runScan(){
 
   let combined=[];
   try{
-    const isAll=srcSel==="all";
-    const isFeeds=srcSel==="feeds";
-    const isCountryMedia=srcSel==="countrymedia";
-
-    if(isAll||srcSel==="reliefweb"){
+    if(src.reliefweb){
       setStatus("ReliefWeb — fetching OCHA reports…");setP(15);
       combined.push(...await fetchReliefWeb(countries,days));
       setP(25);
     }
-    if(isAll||srcSel==="gdacs"){
+    if(src.gdacs){
       setStatus("GDACS — fetching disaster alerts…");
       combined.push(...await fetchGDACS(days));setP(33);
     }
-    if(isAll||isFeeds){
+    if(src.unnews){
       setStatus("UN News — fetching Africa RSS feed…");
       combined.push(...await fetchUNNews(days));setP(40);
+    }
+    if(src.who){
       setStatus("WHO — fetching disease outbreak news…");
       combined.push(...await fetchWHO(days));setP(47);
+    }
+    if(src.fewsnet){
       setStatus("FEWS NET — fetching food security alerts…");
       combined.push(...await fetchFEWSNET(days));setP(54);
+    }
+    if(src.allafrica){
       setStatus("AllAfrica — fetching Africa headlines RSS…");
       combined.push(...await fetchAllAfrica(days));setP(60);
     }
-    if(isAll||isFeeds||isCountryMedia){
+    if(src.countrymedia){
       setStatus("Country & regional media — fetching RSS directly…");
       combined.push(...await fetchCountryMediaRSS(countries,days));setP(75);
     }
-    if(isAll||srcSel==="googlenews"){
+    if(src.googlenews){
       setStatus(`Google News [${modeLabel[mode]}] — ${countries.length} countries${customKeywords.length?" + "+customKeywords.length+" keywords":""}…`);
       const gn=await fetchGoogleNews(countries,days);
       combined.push(...gn);setP(92);
