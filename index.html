@@ -406,7 +406,7 @@ input[type=checkbox]{accent-color:var(--blue);width:14px;height:14px;cursor:poin
       &bull; <strong>Load sweep keywords</strong> — <em>optional</em>. Adds OCHA ROSEA keyword list as an extra search layer — scan always runs broadly without them.<br>
       &bull; <strong>Exclude keywords</strong> — <em>optional</em>. Filters out irrelevant topics (sports, entertainment, etc.) at the search level and from results.<br>
       &bull; <strong>Scan speed</strong> — Quick (~20 s) for daily check; Full (~3 min) for maximum coverage.<br>
-      &bull; <strong>Export</strong> — AI .doc SITREP, standard .doc report with links, .txt, or .csv for Excel.
+      &bull; <strong>Export</strong> — AI .doc SITREP, standard .doc report with links, official Media Sweep format, .txt, or .csv for Excel.
     </div>
     <div class="errbanner" id="errBanner"></div>
     <div class="status-txt" id="statusTxt"></div>
@@ -1613,6 +1613,7 @@ function renderAlerts(alerts,skipStats){
     <span class="rtitle">${alerts.length} result${alerts.length===1?"":"s"}${srcLabel}${cLabel}</span>
     <div class="export-row">
       <button class="abtn" onclick="exportWord()" style="background:var(--blue);color:#fff;border-color:var(--blue);">&#x1F4C4; Export .doc</button>
+      <button class="abtn" onclick="exportMediaSweep()" style="background:#418FDE;color:#fff;border-color:#418FDE;">&#x1F4C4; Download Media Sweep format</button>
       <button class="abtn" onclick="exportTxt()">Export .txt</button>
       <button class="abtn" onclick="exportCSV()">Export .csv</button>
     </div>
@@ -1779,6 +1780,151 @@ ${buildSectionHtml(nonHumList,"NON-HUMANITARIAN / CONTEXT ARTICLES","#6B7280")}
 
   dl(new Blob(["﻿"+html],{type:"application/msword;charset=utf-8"}),`ROSEA_Report_${iso()}.doc`);
 }
+
+// ─── MEDIA SWEEP FORMAT EXPORT ──────────────────────────────────
+// Matches the official OCHA ROSEA "Media Sweep" layout: title block, HIGHLIGHTS,
+// REGIONAL, EASTERN AFRICA (Horn of Africa / Great Lakes sub-sections), SOUTHERN AFRICA —
+// each with hyperlinked headlines, source in parentheses, and a one-line summary.
+function exportMediaSweep(){
+  const full=allAlertsExport.length?allAlertsExport:getList();
+  const list=full.filter(a=>a.category!=="Non-Humanitarian");
+  if(!list.length){alert("No humanitarian articles to export.");return;}
+
+  const todayStr=new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"});
+  const esc=s=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const BLUE="#418FDE";
+  const ord={critical:0,high:1,medium:2,monitor:3};
+  const byRank=(a,b)=>(ord[a.severity]??3)-(ord[b.severity]??3)||new Date(b.date||0)-new Date(a.date||0);
+
+  // Sort each alert into: a specific country (and its REGIONS group), a region-only bucket
+  // (article discusses a region broadly with no single country named), or generic "regional".
+  function classify(a){
+    const c=(a.country||"").toLowerCase();
+    const countryEntry=COUNTRIES.find(([,nm])=>nm.toLowerCase()===c);
+    if(countryEntry){
+      const id=countryEntry[0];
+      const reg=REGIONS.find(r=>r.ids.includes(id));
+      return{bucket:reg?reg.id:"other",country:countryEntry[1]};
+    }
+    if(c.includes("great lakes"))return{bucket:"greatlakes",country:null};
+    if(c.includes("horn"))return{bucket:"horn",country:null};
+    if(c.includes("southern africa"))return{bucket:"southern",country:null};
+    if(c.includes("east africa")||c==="eastern africa")return{bucket:"eastafrica",country:null};
+    return{bucket:"regional",country:null};
+  }
+
+  const groups={regional:[],eastafrica:[],
+    horn:{sub:[],countries:{}},greatlakes:{sub:[],countries:{}},southern:{sub:[],countries:{}},
+    other:{}};
+  list.forEach(a=>{
+    const{bucket,country}=classify(a);
+    if(bucket==="regional"||bucket==="eastafrica"){groups[bucket].push(a);return;}
+    if(bucket==="other"){(groups.other[a.country]=groups.other[a.country]||[]).push(a);return;}
+    if(country)(groups[bucket].countries[country]=groups[bucket].countries[country]||[]).push(a);
+    else groups[bucket].sub.push(a);
+  });
+
+  // HIGHLIGHTS — top-ranked pick per country, capped at 5
+  const sorted=[...list].sort(byRank);
+  const seenHCountry=new Set();const highlights=[];
+  for(const a of sorted){
+    if(highlights.length>=5)break;
+    if(seenHCountry.has(a.country))continue;
+    seenHCountry.add(a.country);highlights.push(a);
+  }
+
+  const articleBlock=a=>`
+    <p style="margin:0 0 2pt 0;"><a href="${a.url}" style="color:${BLUE};">${esc(a.title)}</a>${a.source?` (${esc(a.source)})`:""}</p>
+    <p style="margin:0 0 10pt 0;">${esc(a.summary)}</p>`;
+  const subRegionalBlock=arts=>{
+    if(!arts.length)return"";
+    let h=`<p style="margin:10pt 0 4pt 0;"><b>SUB-REGIONAL</b></p>`;
+    arts.sort(byRank).forEach(a=>h+=articleBlock(a));
+    return h;
+  };
+  const countryBlock=(nm,arts)=>{
+    let h=`<p style="margin:10pt 0 4pt 0;font-family:Arial,sans-serif;"><b>${esc(nm.toUpperCase())}</b></p>`;
+    arts.sort(byRank).forEach(a=>h+=articleBlock(a));
+    return h;
+  };
+  const regionHeader=label=>`<p style="margin:18pt 0 4pt 0;font-family:Arial,sans-serif;"><b style="color:${BLUE};">${label}</b></p>`;
+  const buildRegionCountries=regionId=>{
+    const reg=REGIONS.find(r=>r.id===regionId);
+    let h="";
+    reg.ids.forEach(cid=>{
+      const nm=COUNTRIES.find(c=>c[0]===cid)?.[1];
+      const arts=nm&&groups[regionId].countries[nm];
+      if(arts&&arts.length)h+=countryBlock(nm,arts);
+    });
+    return h;
+  };
+
+  let body="";
+  if(groups.regional.length){
+    body+=regionHeader("REGIONAL");
+    groups.regional.sort(byRank).forEach(a=>body+=articleBlock(a));
+  }
+  const hornHas=groups.horn.sub.length||Object.keys(groups.horn.countries).length;
+  const glHas=groups.greatlakes.sub.length||Object.keys(groups.greatlakes.countries).length;
+  if(groups.eastafrica.length||hornHas||glHas){
+    body+=regionHeader("EASTERN AFRICA");
+    groups.eastafrica.sort(byRank).forEach(a=>body+=articleBlock(a));
+    if(hornHas){
+      body+=regionHeader("HORN OF AFRICA");
+      body+=subRegionalBlock(groups.horn.sub);
+      body+=buildRegionCountries("horn");
+    }
+    if(glHas){
+      body+=regionHeader("GREAT LAKES");
+      body+=subRegionalBlock(groups.greatlakes.sub);
+      body+=buildRegionCountries("greatlakes");
+    }
+  }
+  if(groups.southern.sub.length||Object.keys(groups.southern.countries).length){
+    body+=regionHeader("SOUTHERN AFRICA");
+    body+=subRegionalBlock(groups.southern.sub);
+    body+=buildRegionCountries("southern");
+  }
+  if(Object.keys(groups.other).length){
+    body+=regionHeader("OTHER");
+    Object.entries(groups.other).forEach(([nm,arts])=>{body+=countryBlock(nm,arts);});
+  }
+
+  const highlightsHtml=highlights.map(a=>
+    `<li style="margin-bottom:4pt;"><b style="color:${BLUE};">${esc((a.country||"").toUpperCase())}:</b> <a href="${a.url}" style="color:${BLUE};">${esc(a.title)}</a></li>`
+  ).join("");
+
+  const html=`<html xmlns:o="urn:schemas-microsoft-com:office:office"
+  xmlns:w="urn:schemas-microsoft-com:office:word"
+  xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="UTF-8">
+<title>Media Sweep</title>
+<!--[if gte mso 9]><xml>
+  <w:WordDocument><w:View>Print</w:View><w:Zoom>90</w:Zoom><w:DoNotOptimizeForBrowser/></w:WordDocument>
+</xml><![endif]-->
+<style>
+  body{font-family:Calibri,sans-serif;font-size:11pt;color:#1a1a18;margin:2.2cm 2.8cm;}
+  a{color:${BLUE};}
+  p{line-height:1.4;}
+</style>
+</head>
+<body>
+<p style="font-family:Arial,sans-serif;font-size:24pt;font-weight:bold;color:${BLUE};margin:0;">Media Sweep</p>
+<p style="font-family:Arial,sans-serif;font-size:12pt;font-weight:bold;color:${BLUE};margin:0 0 10pt 0;">${todayStr}</p>
+<p style="font-style:italic;color:#505050;margin:0 0 14pt 0;">This report features a selection of news articles relating to the humanitarian situation in Eastern and Southern Africa. The views expressed herein are attributable to the original source and do not in any way reflect an official position of the United Nations Office for the Coordination of Humanitarian Affairs.</p>
+<p style="margin:14pt 0 4pt 0;font-family:Arial,sans-serif;"><b style="color:${BLUE};">HIGHLIGHTS</b></p>
+<ul style="margin:0 0 14pt 0;padding-left:18pt;">${highlightsHtml}</ul>
+${body}
+<p style="margin-top:22pt;font-size:8pt;color:#aaa;border-top:1pt solid #ddd;padding-top:5pt;">
+  OCHA ROSEA Information Management Unit &mdash; Automated Media Monitoring Tool
+</p>
+</body>
+</html>`;
+
+  dl(new Blob(["﻿"+html],{type:"application/msword;charset=utf-8"}),`Media_Sweep_${iso()}.doc`);
+}
+
 // ═══════════════════════════════════════════════════════════════
 //  AI ANALYSIS — OpenAI GPT-4o mini integration
 // ═══════════════════════════════════════════════════════════════
