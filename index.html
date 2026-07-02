@@ -515,7 +515,34 @@ const COUNTRIES=[
   ["uganda","Uganda"],["zambia","Zambia"],["zimbabwe","Zimbabwe"]
 ];
 // News text rarely uses ReliefWeb's official "Democratic Republic of the Congo" — match common aliases too
-const COUNTRY_ALIASES={drc:["dr congo","drc","democratic republic of congo","democratic republic of the congo","congo-kinshasa"]};
+const COUNTRY_ALIASES={
+  drc:["dr congo","drc","democratic republic of congo","democratic republic of the congo","congo-kinshasa","kinshasa","goma","north kivu","south kivu","ituri","kasai","bukavu","bunia","beni","uvira"],
+  ethiopia:["addis ababa","tigray","oromia","amhara region","afar region","sidama","dire dawa","bahir dar","mekelle"],
+  somalia:["mogadishu","puntland","jubaland","somaliland","garowe","kismayo","baidoa","beledweyne","hirshabelle"],
+  sudan:["khartoum","darfur","north darfur","south darfur","kordofan","port sudan","blue nile","al-fashir","el fasher","kassala"],
+  south_sudan:["juba","malakal","bentiu","bor","wau","yei","torit"],
+  kenya:["nairobi","mombasa","turkana","marsabit","mandera","kakuma","garissa","wajir"],
+  uganda:["kampala","nakivale","bidi bidi","palorinya","arua","gulu","lira"],
+  mozambique:["maputo","cabo delgado","pemba","metuge","nampula","mocimboa"],
+  eswatini:["swaziland"],
+  tanzania:["dar es salaam","dodoma","zanzibar","mwanza","arusha"],
+  zimbabwe:["harare","bulawayo","hwange"],
+  zambia:["lusaka","livingstone","ndola"],
+  malawi:["lilongwe","blantyre","zomba","mzuzu"],
+  rwanda:["kigali","gisenyi","ruhengeri"],
+  burundi:["bujumbura","gitega","ngozi","cibitoke"],
+  madagascar:["antananarivo","toamasina","fianarantsoa"],
+  angola:["luanda","benguela","huambo"],
+  botswana:["gaborone","francistown","maun"],
+  namibia:["windhoek","walvis bay","rundu"],
+  eritrea:["asmara","massawa"],
+  djibouti:["djibouti city","djibouti town"],
+  comoros:["moroni"],
+  lesotho:["maseru"],
+  mauritius:["port louis"],
+  seychelles:["victoria"],
+  south_africa:["johannesburg","cape town","durban","pretoria"]
+};
 // ReliefWeb's primary_country.name taxonomy differs from the display name for some countries
 const RELIEFWEB_NAME_OVERRIDE={"DR Congo":"Democratic Republic of the Congo"};
 const REGIONS=[
@@ -764,8 +791,8 @@ function detectTheme(text){
 }
 function scoreSeverity(text){
   const t=(text||"").toLowerCase();
-  if(["famine","level 3","l3 emergency","catastrophic","mass atrocity","thousands killed","mass displacement","genocide"].some(k=>kwHit(t,k)))return "critical";
-  if(["conflict","flood","cyclone","drought","displaced","outbreak","hunger","crisis","emergency","attack","deaths","casualties","evacuated","ipc phase 4","ipc phase 5","acute malnutrition","cholera","armed clashes","violence","famine","landslide","heavy rainfall"].some(k=>kwHit(t,k)))return "high";
+  if(["famine","famine declaration","level 3","l3 emergency","catastrophic","mass atrocity","thousands killed","mass displacement","genocide","mass graves","ethnic cleansing"].some(k=>kwHit(t,k)))return "critical";
+  if(["conflict","flood","floods","flooding","cyclone","drought","displaced","outbreak","outbreaks","hunger","crisis","crises","emergency","emergencies","attack","attacks","deaths","casualties","evacuated","ipc phase 4","ipc phase 5","acute malnutrition","cholera","armed clashes","violence","famine","landslide","heavy rainfall","shelling","airstrikes","siege","abduction","sexual violence","gbv"].some(k=>kwHit(t,k)))return "high";
   if(["concern","alert","warning","deteriorating","worsening","affected","at risk","ipc phase 3","insecurity","protection","displacement","disease"].some(k=>kwHit(t,k)))return "medium";
   return "monitor";
 }
@@ -778,7 +805,7 @@ function filterByTheme(alerts){
   return alerts.filter(a=>active.has(a.theme)||a.theme==="General");
 }
 // Master list of humanitarian keywords — article must have at least one in title+summary
-const HUM_KEYWORDS=["humanitarian","conflict","violence","armed","clashes","attack","militia","rebel","war","airstrike","atrocity","refugee","displacement","idp","displaced","flee","asylum","camp","returnee","food insecurity","famine","hunger","malnutrition","ipc","starvation","crop failure","cholera","outbreak","epidemic","measles","mpox","malaria","ebola","polio","vaccination","disease","flood","cyclone","drought","earthquake","landslide","storm","disaster","emergency","crisis","casualties","deaths","killed","injured","evacuated","ceasefire","coup","protest","unrest","sanctions","relief","aid","humanitarian response","protection","insecurity","acute","wfp","unhcr","unicef","ocha","icrc","msf","save the children"];
+const HUM_KEYWORDS=["humanitarian","conflict","violence","armed","clashes","clash","attack","attacks","militia","rebel","war","airstrike","airstrikes","shelling","bombing","atrocity","refugee","refugees","displacement","idp","idps","displaced","displacement","flee","asylum","camp","returnee","food insecurity","famine","hunger","malnutrition","ipc","starvation","crop failure","cholera","outbreak","outbreaks","epidemic","measles","mpox","malaria","ebola","polio","vaccination","disease","diseases","flood","floods","flooding","cyclone","cyclones","drought","droughts","earthquake","landslide","landslides","storm","disaster","disasters","emergency","emergencies","crisis","crises","casualties","deaths","killed","injured","evacuated","evacuations","ceasefire","coup","protest","protests","unrest","sanctions","relief","aid","humanitarian response","protection","insecurity","acute","wfp","unhcr","unicef","ocha","icrc","msf","iom","ifrc","save the children","gbv","sexual violence","gender-based violence","abduction","abducted","kidnapping","siege","locust","armyworm","heat wave","heatwave","mass graves","ethnic violence","humanitarian workers","aid workers","peacekeeping","humanitarian crisis"];
 
 // These sources only publish humanitarian/disaster content — no keyword check needed
 const TRUSTED_HUM_SOURCES=new Set(["reliefweb","gdacs","unnews","who","fewsnet"]);
@@ -787,7 +814,10 @@ const TRUSTED_HUM_SOURCES=new Set(["reliefweb","gdacs","unnews","who","fewsnet"]
 function requiresKeyword(a){
   if(TRUSTED_HUM_SOURCES.has(a.dataSource))return true;
   const txt=(a.title+" "+a.summary).toLowerCase();
-  return HUM_KEYWORDS.some(k=>kwHit(txt,k))||customKeywords.some(k=>kwHit(txt,k));
+  // Use plain .includes() here (not word-boundary kwHit) so inflected forms like
+  // "flooding", "attacks", "outbreaks", "emergencies" match their base keyword.
+  // kwHit is kept for theme/severity scoring where precision matters more.
+  return HUM_KEYWORDS.some(k=>txt.includes(k))||customKeywords.some(k=>kwHit(txt,k));
 }
 
 function dedup(alerts){
@@ -811,7 +841,7 @@ function dedup(alerts){
 }
 
 // Limit articles per country+theme to prevent one topic dominating
-function capByTopic(alerts,cap=6){
+function capByTopic(alerts,cap=12){
   const counts={};
   return alerts.filter(a=>{
     const k=`${a.country}||${a.theme}`;
@@ -850,13 +880,29 @@ function matchCountry(combined){
 function parseRSS(xmlStr){
   try{
     const xml=new DOMParser().parseFromString(xmlStr,"text/xml");
-    return Array.from(xml.querySelectorAll("item")).map(item=>({
-      title:item.querySelector("title")?.textContent||"",
-      desc:(item.querySelector("description")?.textContent||"").replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim(),
-      link:item.querySelector("link")?.textContent||"",
-      pubDate:item.querySelector("pubDate")?.textContent||"",
-      source:item.querySelector("source")?.textContent||""
-    }));
+    // Detect Atom (uses <entry>) vs RSS (uses <item>)
+    const isAtom=xml.querySelector("feed")!==null&&xml.querySelector("entry")!==null;
+    const items=Array.from(xml.querySelectorAll(isAtom?"entry":"item"));
+    return items.map(item=>{
+      const title=item.querySelector("title")?.textContent||"";
+      const desc=isAtom
+        ?(item.querySelector("summary")?.textContent||item.querySelector("content")?.textContent||"")
+        :(item.querySelector("description")?.textContent||"");
+      // Atom <link> is an element with href attribute; RSS <link> contains text
+      const linkEl=item.querySelector("link[rel='alternate']")||item.querySelector("link");
+      const link=isAtom
+        ?(linkEl?.getAttribute("href")||linkEl?.textContent||"")
+        :(item.querySelector("link")?.textContent||"");
+      const pubDate=isAtom
+        ?(item.querySelector("published")?.textContent||item.querySelector("updated")?.textContent||"")
+        :(item.querySelector("pubDate")?.textContent||"");
+      return{
+        title,
+        desc:desc.replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim(),
+        link,pubDate,
+        source:item.querySelector("source")?.textContent||""
+      };
+    });
   }catch(e){return [];}
 }
 
@@ -880,8 +926,11 @@ async function proxyFetch(url,timeout=11000,skipWorker=false){
     const isUsable=v=>{
       if(!v||typeof v!=="string"||v.length<80)return false;
       const t=v.trimStart();
+      // For JSON responses: only accept the allorigins.win wrapper format {"contents":"..."}
+      // to prevent Cloudflare Worker error JSON ({"error":"..."}) from blocking fallbacks.
+      if(t.startsWith("{"))return t.includes('"contents"');
       return t.startsWith("<?xml")||t.startsWith("<rss")||t.startsWith("<feed")||
-             t.startsWith("<channel")||t.startsWith("{")||t.startsWith("<rdf:");
+             t.startsWith("<channel")||t.startsWith("<rdf:");
     };
     const ok=v=>{if(!done&&isUsable(v)){done=true;resolve(v);}};
     const fail=()=>{};
@@ -996,7 +1045,7 @@ async function fetchReliefWeb(countries,days){
   for(let i=0;i<countries.length;i+=5){
     const batch=countries.slice(i,i+5);
     const params=[
-      "appname=rosea-monitor","preset=latest","limit=20",
+      "appname=rosea-monitor","preset=latest","limit=50",
       "fields[include][]=title","fields[include][]=body","fields[include][]=date.created",
       "fields[include][]=source","fields[include][]=primary_country","fields[include][]=url",
       "filter[operator]=AND",`filter[conditions][0][field]=date.created`,
@@ -1351,11 +1400,10 @@ async function fetchGoogleNews(countries,days){
     }
   }
 
-  // Regional media — always searched when country media is enabled
-  if(useMedia){
-    for(const site of REGIONAL_MEDIA){
-      queries.push({q:`site:${site} (${MASTER_KW})`,country:"ROSEA region"});
-    }
+  // Regional/international wires — always searched via Google News regardless of the
+  // "Auto-include country outlets" toggle, since BBC/Al Jazeera etc. are standing sources.
+  for(const site of REGIONAL_MEDIA){
+    queries.push({q:`site:${site} (${MASTER_KW})`,country:"ROSEA region"});
   }
 
   // Custom sites (always, all modes)
