@@ -586,7 +586,7 @@ const COUNTRY_KW={
   seychelles:["cyclone","emergency response"],
   somalia:["humanitarian crisis","floods","drought","displacement","refugees","food insecurity","cholera","measles","malnutrition","cyclone","conflict","violence","armed clashes","disease outbreak","emergency response","humanitarian access","landslide","insecurity","protection concerns","aid response","disaster declaration"],
   south_africa:["floods","drought","FMD","refugees","violence","heavy rainfall","disaster declaration"],
-  south_sudan:["humanitarian crisis","floods","drought","displacement","refugees","food insecurity","cholera","measles","malnutrition","cyclone","conflict","violence","armed clashes","disease outbreak","emergency response","humanitarian access","insecurity","protection concerns","aid response","disaster declaration"],
+  south_sudan:["humanitarian crisis","floods","drought","displacement","refugees","food insecurity","cholera","measles","malnutrition","cyclone","conflict","violence","armed clashes","disease outbreak","emergency response","humanitarian access","insecurity","protection concerns","aid response","disaster declaration","election","elections","peace process","ceasefire"],
   sudan:["humanitarian crisis","floods","drought","displacement","refugees","food insecurity","cholera","measles","malnutrition","cyclone","conflict","violence","armed clashes","disease outbreak","emergency response","humanitarian access","landslide","famine","insecurity","protection concerns","aid response","disaster declaration"],
   tanzania:["floods","drought","refugees","food insecurity","cholera","cyclone","violence","disease outbreak","landslide","heavy rainfall","protection"],
   uganda:["humanitarian crisis","floods","drought","displacement","refugees","food insecurity","cholera","measles","mpox","Ebola","malnutrition","conflict","violence","disease outbreak","emergency response","humanitarian access","landslide","insecurity","protection concerns","aid response"],
@@ -617,7 +617,7 @@ const COUNTRY_MEDIA={
   somalia:["sonna.so","garoweonline.com","somaliguardian.com","hiiraan.com","mustaqbalmedia.net","shabellemedia.com"],
   south_africa:["dailymaverick.co.za","iol.co.za","ewn.co.za","mg.co.za","timeslive.co.za","news24.com","sabcnews.com"],
   south_sudan:["eyeradio.org","radiotamazuj.org"],
-  sudan:["darfur24.com","dabangasudan.org","suna-sd.net","sudantribune.com","sudanspost.com"],
+  sudan:["darfur24.com","radiodabanga.org","dabangasudan.org","suna-sd.net","sudantribune.com","sudanspost.com"],
   tanzania:["dailynews.co.tz","thecitizen.co.tz","ippmedia.com","mwananchi.co.tz"],
   uganda:["monitor.co.ug","independent.co.ug","nbs.ug","observer.ug","nilepost.co.ug","ugandaradionetwork.net","newvision.co.ug","ugandatimes.ug"],
   zambia:["diggers.news","lusakatimes.com","mwebantu.com","times.co.zm","daily-mail.co.zm","zambianeye.com"],
@@ -805,7 +805,7 @@ function filterByTheme(alerts){
   return alerts.filter(a=>active.has(a.theme)||a.theme==="General");
 }
 // Master list of humanitarian keywords — article must have at least one in title+summary
-const HUM_KEYWORDS=["humanitarian","conflict","violence","armed","clashes","clash","attack","attacks","militia","rebel","war","airstrike","airstrikes","shelling","bombing","atrocity","refugee","refugees","displacement","idp","idps","displaced","displacement","flee","asylum","camp","returnee","food insecurity","famine","hunger","malnutrition","ipc","starvation","crop failure","cholera","outbreak","outbreaks","epidemic","measles","mpox","malaria","ebola","polio","vaccination","disease","diseases","flood","floods","flooding","cyclone","cyclones","drought","droughts","earthquake","landslide","landslides","storm","disaster","disasters","emergency","emergencies","crisis","crises","casualties","deaths","killed","injured","evacuated","evacuations","ceasefire","coup","protest","protests","unrest","sanctions","relief","aid","humanitarian response","protection","insecurity","acute","wfp","unhcr","unicef","ocha","icrc","msf","iom","ifrc","save the children","gbv","sexual violence","gender-based violence","abduction","abducted","kidnapping","siege","locust","armyworm","heat wave","heatwave","mass graves","ethnic violence","humanitarian workers","aid workers","peacekeeping","humanitarian crisis"];
+const HUM_KEYWORDS=["humanitarian","conflict","violence","armed","clashes","clash","attack","attacks","militia","rebel","war","airstrike","airstrikes","shelling","bombing","atrocity","refugee","refugees","displacement","idp","idps","displaced","displacement","flee","asylum","camp","returnee","food insecurity","famine","hunger","malnutrition","ipc","starvation","crop failure","cholera","outbreak","outbreaks","epidemic","measles","mpox","malaria","ebola","polio","vaccination","disease","diseases","flood","floods","flooding","cyclone","cyclones","drought","droughts","earthquake","landslide","landslides","storm","disaster","disasters","emergency","emergencies","crisis","crises","casualties","deaths","killed","injured","evacuated","evacuations","ceasefire","coup","protest","protests","unrest","sanctions","relief","aid","humanitarian response","protection","insecurity","acute","wfp","unhcr","unicef","ocha","icrc","msf","iom","ifrc","save the children","gbv","sexual violence","gender-based violence","abduction","abducted","kidnapping","siege","locust","armyworm","heat wave","heatwave","mass graves","ethnic violence","humanitarian workers","aid workers","peacekeeping","humanitarian crisis","election","elections","electoral","ballot","polling","vote","voter","referendum"];
 
 // These sources only publish humanitarian/disaster content — no keyword check needed
 const TRUSTED_HUM_SOURCES=new Set(["reliefweb","gdacs","unnews","who","fewsnet"]);
@@ -838,6 +838,20 @@ function dedup(alerts){
     seenUrl.add(uk);
     return true;
   });
+}
+
+// Date guard — rejects articles that are too old regardless of date format.
+// Handles parseable dates (90-day hard cap on top of the scan window),
+// and non-parseable strings by extracting a 4-digit year as a fallback.
+// Returns true = article should be dropped.
+function isTooOld(pubDate,since){
+  if(!pubDate)return false;
+  const t=new Date(pubDate).getTime();
+  if(!isNaN(t))return t<since||(Date.now()-t)>90*86400000;
+  // Date string exists but couldn't be parsed — check for a year
+  const yr=pubDate.match(/\b(20\d{2})\b/);
+  if(yr){const cutoff=new Date().getFullYear()-1;return parseInt(yr[1])<cutoff;}
+  return false; // No date info → allow through
 }
 
 // Limit articles per country+theme to prevent one topic dominating
@@ -1066,7 +1080,7 @@ async function fetchReliefWeb(countries,days){
         const rawBody=(f.body||"").replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim();
         const combined=f.title+" "+rawBody;
         results.push({title:f.title||"Untitled",country,theme:detectTheme(combined),severity:scoreSeverity(combined),
-          summary:(rawBody.slice(0,300)+(rawBody.length>300?"…":""))||f.title,
+          summary:(rawBody.slice(0,500)+(rawBody.length>500?"…":""))||f.title,
           date:(f.date&&f.date.created||"").slice(0,10)||"recent",
           source:(f.source||[]).map(s=>s.name).join(", ")||"ReliefWeb",
           url:f.url||"https://reliefweb.int",dataSource:"reliefweb"});
@@ -1085,9 +1099,9 @@ async function fetchGDACS(days){
   if(!text)return results;
   for(const {title,desc,link,pubDate} of parseRSS(text)){
     const c=matchCountry(title+" "+desc);if(!c)continue;
-    if(pubDate){const t=new Date(pubDate).getTime();if(!isNaN(t)&&t<since)continue;}
+    if(isTooOld(pubDate,since))continue;
     results.push({title,country:c,theme:"Climate & disasters",severity:scoreSeverity(title+" "+desc),
-      summary:desc.slice(0,300)+(desc.length>300?"…":""),
+      summary:desc.slice(0,500)+(desc.length>500?"…":""),
       date:pubDate?new Date(pubDate).toISOString().slice(0,10):"recent",
       source:"GDACS / UN",url:link,dataSource:"gdacs"});
   }
@@ -1102,10 +1116,10 @@ async function fetchUNNews(days){
   if(!text)return results;
   for(const {title,desc,link,pubDate} of parseRSS(text)){
     if(!title)continue;
-    if(pubDate){const t=new Date(pubDate).getTime();if(!isNaN(t)&&t<since)continue;}
+    if(isTooOld(pubDate,since))continue;
     const c=matchCountry(title+" "+desc);if(!c)continue;
     results.push({title,country:c,theme:detectTheme(title+" "+desc),severity:scoreSeverity(title+" "+desc),
-      summary:desc.slice(0,300)+(desc.length>300?"…":""),
+      summary:desc.slice(0,500)+(desc.length>500?"…":""),
       date:pubDate?new Date(pubDate).toISOString().slice(0,10):"recent",
       source:"UN News",url:link,dataSource:"unnews"});
   }
@@ -1120,10 +1134,10 @@ async function fetchWHO(days){
   if(!text)return results;
   for(const {title,desc,link,pubDate} of parseRSS(text)){
     if(!title)continue;
-    if(pubDate){const t=new Date(pubDate).getTime();if(!isNaN(t)&&t<since)continue;}
+    if(isTooOld(pubDate,since))continue;
     const c=matchCountry(title+" "+desc);if(!c)continue;
     results.push({title,country:c,theme:"Health emergencies",severity:scoreSeverity(title+" "+desc),
-      summary:desc.slice(0,300)+(desc.length>300?"…":""),
+      summary:desc.slice(0,500)+(desc.length>500?"…":""),
       date:pubDate?new Date(pubDate).toISOString().slice(0,10):"recent",
       source:"WHO",url:link,dataSource:"who"});
   }
@@ -1138,10 +1152,10 @@ async function fetchFEWSNET(days){
   if(!text)return results;
   for(const {title,desc,link,pubDate} of parseRSS(text)){
     if(!title)continue;
-    if(pubDate){const t=new Date(pubDate).getTime();if(!isNaN(t)&&t<since)continue;}
+    if(isTooOld(pubDate,since))continue;
     const c=matchCountry(title+" "+desc);if(!c)continue;
     results.push({title,country:c,theme:"Food insecurity & famine",severity:scoreSeverity(title+" "+desc),
-      summary:desc.slice(0,300)+(desc.length>300?"…":""),
+      summary:desc.slice(0,500)+(desc.length>500?"…":""),
       date:pubDate?new Date(pubDate).toISOString().slice(0,10):"recent",
       source:"FEWS NET",url:link,dataSource:"fewsnet"});
   }
@@ -1156,10 +1170,10 @@ async function fetchAllAfrica(days){
   if(!text)return results;
   for(const {title,desc,link,pubDate} of parseRSS(text)){
     if(!title)continue;
-    if(pubDate){const t=new Date(pubDate).getTime();if(!isNaN(t)&&t<since)continue;}
+    if(isTooOld(pubDate,since))continue;
     const c=matchCountry(title+" "+desc);if(!c)continue;
     results.push({title,country:c,theme:detectTheme(title+" "+desc),severity:scoreSeverity(title+" "+desc),
-      summary:desc.slice(0,300)+(desc.length>300?"…":""),
+      summary:desc.slice(0,500)+(desc.length>500?"…":""),
       date:pubDate?new Date(pubDate).toISOString().slice(0,10):"recent",
       source:"AllAfrica",url:link,dataSource:"allafrica"});
   }
@@ -1172,7 +1186,8 @@ const NO_RSS_SITES=new Set([
   "kenyanews.go.ke","ena.et","sona.so","suna-sd.net","dailynews.co.tz",
   "nbs.ug","adi.dj","asenatv.com","shabait.com","angop.ao",
   "fanabc.com","abpinfo.bi","inside.news","nation.sc","jornalnoticias.co.mz",
-  "aimnews.org","nbcnews.na","nampa.org","dailynews.gov.bw","lesothotribune.co.ls"
+  "aimnews.org","nbcnews.na","nampa.org","dailynews.gov.bw","lesothotribune.co.ls",
+  "rwandatoday.africa" // RSS feed republishes stale articles — scrape homepage instead
 ]);
 // Sites whose RSS is NOT at /feed/ — override URL here
 const CUSTOM_RSS_URL={
@@ -1185,11 +1200,12 @@ const CUSTOM_RSS_URL={
   "the-star.co.ke":       "https://www.the-star.co.ke/rss/",
   "citizen.digital":      "https://www.citizen.digital/feed",
   "newtimes.co.rw":       "https://www.newtimes.co.rw/rss.xml",
-  "rwandatoday.africa":   "https://rwandatoday.africa/feed/",
+  // rwandatoday.africa moved to NO_RSS_SITES (broken feed republishes stale articles)
   "hiiraan.com":          "https://www.hiiraan.com/rss.aspx",
   "radiotamazuj.org":     "https://radiotamazuj.org/en/rss.xml",
   "sudantribune.com":     "https://www.sudantribune.com/spip.php?page=backend",
   "darfur24.com":         "https://darfur24.com/feed/",
+  "radiodabanga.org":     "https://www.radiodabanga.org/en/rss.xml",
   "ewn.co.za":            "https://ewn.co.za/RSS",
   "news24.com":           "https://feeds.24.com/articles/news24/SouthAfrica/rss",
   "mg.co.za":             "https://mg.co.za/feed/",
@@ -1254,12 +1270,12 @@ async function fetchCountryMediaRSS(countries,days){
     }
     for(const {title,desc,link,pubDate,source} of parseRSS(text)){
       if(!title||!link)continue;
-      if(pubDate){const t=new Date(pubDate).getTime();if(!isNaN(t)&&t<since)continue;}
+      if(isTooOld(pubDate,since))continue;
       const matched=matchCountry(title+" "+desc);
       if(!matched&&isRegional)continue;
       results.push({title,country:matched||country,
         theme:detectTheme(title+" "+desc),severity:scoreSeverity(title+" "+desc),
-        summary:desc.slice(0,300)+(desc.length>300?"…":""),
+        summary:desc.slice(0,500)+(desc.length>500?"…":""),
         date:pubDate?new Date(pubDate).toISOString().slice(0,10):"recent",
         source:source||site,url:link,dataSource:"countrymedia"});
     }
@@ -1337,6 +1353,12 @@ async function fetchGoogleNews(countries,days){
     // Pan-African outlets — regional queries (not per country, much faster)
     for(const site of PAN_AFRICAN){
       queries.push({q:`site:${site} (${MASTER_KW})`,country:"ROSEA region"});
+    }
+    // Key international wires: per-country queries for BBC and Al Jazeera so articles
+    // naming a specific country are tagged correctly rather than falling to "ROSEA region"
+    for(const c of countries){
+      queries.push({q:`site:bbc.com "${c}"`,country:c});
+      queries.push({q:`site:aljazeera.com "${c}"`,country:c});
     }
     // Country media sites
     if(useMedia){
@@ -1442,16 +1464,12 @@ async function fetchGoogleNews(countries,days){
       const isPerCountryQuery=COUNTRIES.some(([,nm])=>nm===country);
       for(const {title,desc,link,pubDate,source} of parseRSS(text)){
         if(!title)continue;
-        // Client-side date backstop: reject if pubDate parses and is older than window
-        if(pubDate){
-          const t=new Date(pubDate).getTime();
-          if(!isNaN(t)&&t<since)continue;
-        }
+        if(isTooOld(pubDate,since))continue;
         const matched=matchCountry(title+" "+desc);
         if(!matched&&!isPerCountryQuery)continue;
         results.push({title,country:matched||country,
           theme:detectTheme(title+" "+desc),severity:scoreSeverity(title+" "+desc),
-          summary:desc.slice(0,320)+(desc.length>320?"…":""),
+          summary:desc.slice(0,500)+(desc.length>500?"…":""),
           date:pubDate?new Date(pubDate).toISOString().slice(0,10):"recent",
           source:source||"Google News",
           url:link,dataSource:"googlenews"});
