@@ -71,74 +71,56 @@ from the browser console. Never put a secret or sensitive data in `index.html`.
 Real access control is enforced **in front of** the site by Cloudflare Access (Zero Trust),
 which authenticates visitors before any application code is served. Free for up to 50 users.
 
-**Goal**: only UN staff can reach the tool, signing in with their existing Microsoft UN
-account. This is done in two stages, because stage 2 needs UN ICT involvement while stage 1
-does not — stage 1 already enforces "UN emails only" and can be live the same day.
+**Goal**: only people with a UN email address can reach the tool, and they sign in using
+that email address. No Azure/Entra app registration is required.
 
-### Stage 1 — restrict to UN emails (no ICT needed)
+**How it works**: Cloudflare Access sits in front of the site. A visitor enters their email,
+Cloudflare emails them a 6-digit code ("one-time PIN"), and an Access *policy* allows only
+approved UN email domains. Someone who cannot receive mail at a UN address cannot get in.
+Access is free for up to 50 users.
 
-1. **Deploy to Cloudflare Pages** (Access can only protect sites served through Cloudflare):
-   - Cloudflare dashboard → *Workers & Pages* → *Create* → *Pages* → *Connect to Git*
-   - Select the `ROSEA_Media_Monitoring` repo
-   - **Framework preset: `None`** · **Build command: leave empty** · **Output directory: `/`**
+### Setup
+
+1. **Deploy to Cloudflare Pages** — Access can only protect sites served through Cloudflare,
+   so the app moves off GitHub Pages.
+   - Cloudflare dashboard → *Workers & Pages* → *Create* → *Pages*
+   - *Connect to Git* and select the `ROSEA_Media_Monitoring` repo. If the UN-OCHA org does
+     not permit installing the Cloudflare GitHub app, use **Direct Upload** instead and drag
+     in `index.html` — the app is a single file, so this works fine (the trade-off is that
+     future changes need re-uploading rather than deploying automatically on push).
+   - Build settings: **Framework preset `None`** · **Build command: empty** ·
+     **Output directory `/`**
      (an earlier attempt failed because Cloudflare tried to run a build — this app has none)
-   - Deploy. You get a `*.pages.dev` URL.
-2. **Enable Zero Trust**: dashboard → *Zero Trust* → complete the free-plan signup if prompted.
-   You will be asked to choose a **team domain**, giving you
-   `https://<team-name>.cloudflareaccess.com` — note this, stage 2 needs it.
-3. **Add an Access application**: *Zero Trust* → *Access* → *Applications* →
+   - Deploy. Note the `*.pages.dev` URL it gives you.
+2. **Enable Zero Trust** — dashboard → *Zero Trust*. On first use you pick a **team name**,
+   which becomes `https://<team-name>.cloudflareaccess.com`. Choose the **Free** plan.
+3. **Add an Access application** — *Zero Trust* → *Access* → *Applications* →
    *Add an application* → *Self-hosted*
-   - Name it, and set the application domain to the `*.pages.dev` hostname from step 1
-4. **Add a policy** — this is where access is managed, never in code:
-   - Action: **Allow**
-   - Rule: *Emails ending in* → `@un.org`
-   - Add further rules for any other domains your team uses (e.g. `@unocha.org`).
-   - With this rule there is no user list to maintain: any address on an approved UN
-     domain gets in, everyone else is blocked.
-5. **Login method**: *Zero Trust* → *Settings* → *Authentication* → *Login methods*
-   - **One-time PIN** is enabled by default and needs no setup — Cloudflare emails a
-     6-digit code to the address being used. Combined with the policy in step 4, only
-     someone who can receive mail at a UN address can get in.
-6. Test in a private window. A UN address should receive a code and reach the app;
-   any other address should be refused.
+   - Name it (e.g. `ROSEA Media Monitor`)
+   - Set the application domain to the `*.pages.dev` hostname from step 1
+   - Session duration: 24 hours or 1 week, as preferred
+4. **Add the policy** — this is where access is controlled, never in code:
+   - Policy name: `UN staff only` · Action: **Allow**
+   - Include → selector **Emails ending in** → value `@un.org`
+   - Add a value for every other domain your team uses (e.g. `@unocha.org`) or those
+     people will be locked out
+   - There is no user list to maintain: any address on an approved domain gets in,
+     everyone else is refused
+5. **Confirm the login method** — *Zero Trust* → *Settings* → *Authentication* →
+   *Login methods*. **One-time PIN** is available by default and needs no configuration.
+6. **Test** in a private window: visit the `*.pages.dev` URL. A UN address should receive a
+   code and reach the app; a personal address (e.g. Gmail) should be refused.
 
-At this point the tool is genuinely restricted to UN staff.
+### Known friction points
 
-### Stage 2 — Microsoft UN account sign-in (needs UN ICT)
-
-This replaces the emailed code with proper single sign-on, so staff who are already signed
-in to their UN Microsoft account go straight through. It requires an app registration in
-the UN's Entra ID (Azure AD) tenant, which normally only ICT/OICT administrators can create.
-
-**What to request from UN ICT** — forward this list:
-
-> Please register an application in the UN Entra ID tenant for Cloudflare Access SSO:
->
-> - **Name**: `Cloudflare Access — OCHA ROSEA Media Monitor`
-> - **Platform**: Web
-> - **Redirect URI**: `https://<team-name>.cloudflareaccess.com/cdn-cgi/access/callback`
-> - **Delegated Microsoft Graph permissions**: `openid`, `profile`, `email`, `offline_access`,
->   `User.Read` — all standard sign-in scopes; no mailbox, file or directory-wide read access
->   is required
-> - **Please provide back**: Application (client) ID, Directory (tenant) ID, and a client
->   secret value
->
-> Group-based permissions are *not* required — access is scoped by email domain — so no
-> `Directory.Read.All` consent is needed.
-
-Keeping the permission request to sign-in scopes only (no directory read) usually makes
-approval much quicker, since nothing sensitive is being granted.
-
-**Once ICT returns the three values:**
-
-1. *Zero Trust* → *Settings* → *Authentication* → *Login methods* → *Add new* →
-   **Azure AD / Microsoft Entra ID**
-2. Paste the Application (client) ID, Client secret, and Directory (tenant) ID. Leave
-   *Support groups* off unless you later want group-based rules.
-3. Save, then use **Test** to confirm a UN account authenticates.
-4. Update the Access policy from step 4 above to also require
-   *Login method* → *Azure AD*, so Microsoft sign-in becomes the route in.
-5. Optionally disable **One-time PIN** so SSO is the only method.
+- **Cloudflare asks for a payment method** to activate Zero Trust, even on the free 50-user
+  tier. Nothing is charged at that tier, but a card must be on file.
+- **If Cloudflare will not accept the `*.pages.dev` hostname** for the Access application,
+  attach a custom domain to the Pages project (Pages → *Custom domains*) and protect that
+  hostname instead.
+- **Account ownership**: if Zero Trust is set up under a personal Cloudflare account, access
+  control for a UN tool depends on that individual's account. Worth migrating to a
+  UN-administered Cloudflare account when possible.
 
 ### After Access is live
 
@@ -150,6 +132,14 @@ should be removed — it adds no protection and creates a misleading impression 
 Day to day, access is managed at *Zero Trust → Access → Applications → (your app) →
 Policies*. Changes apply immediately with no code change or redeploy. Sign-in activity is
 auditable under *Zero Trust → Logs → Access*.
+
+### Optional, later: Microsoft single sign-on
+
+If UN ICT ever agrees to register an application in the UN Entra ID tenant, Microsoft SSO
+can be added as a login method so staff skip the emailed code and use their existing UN
+account session. This changes only the sign-in experience — the email-domain restriction
+above already provides the access control — so it is a convenience upgrade, not a
+prerequisite.
 
 ## Deployment
 
