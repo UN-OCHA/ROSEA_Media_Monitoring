@@ -61,9 +61,47 @@ All of this lives in `index.html` as plain JS data structures — no build step 
 - `NO_RSS_SITES` — outlets with no RSS at all; these are homepage-scraped instead.
 - `BLOCKED_DOMAINS` — known aggregators/scrapers filtered out of results.
 
+## Access control
+
+**The login screen inside `index.html` is a convenience gate, not security.** Everything in a
+static site is readable and bypassable by anyone who opens the page — passwords are stored as
+SHA-256 hashes so the source contains no reusable password, but the gate itself can be skipped
+from the browser console. Never put a secret or sensitive data in `index.html`.
+
+Real access control is enforced **in front of** the site by Cloudflare Access (Zero Trust),
+which authenticates visitors before any application code is served. Free for up to 50 users.
+
+### One-time setup
+
+1. **Deploy to Cloudflare Pages** (Access can only protect sites served through Cloudflare):
+   - Cloudflare dashboard → *Workers & Pages* → *Create* → *Pages* → *Connect to Git*
+   - Select the `ROSEA_Media_Monitoring` repo
+   - **Framework preset: `None`** · **Build command: leave empty** · **Output directory: `/`**
+     (an earlier attempt failed because Cloudflare tried to run a build — this app has none)
+   - Deploy. You get a `*.pages.dev` URL.
+2. **Enable Zero Trust**: dashboard → *Zero Trust* → complete the free-plan signup if prompted.
+3. **Add an Access application**: *Zero Trust* → *Access* → *Applications* → *Add an application*
+   → *Self-hosted*
+   - Give it a name and point it at the `*.pages.dev` hostname from step 1
+4. **Add a policy** — this is where users are managed, never in code:
+   - Action: **Allow**
+   - Rule: *Emails ending in* → `@un.org`
+   - With this single rule there is no user list to maintain: any UN address gets in,
+     everyone else is blocked. Add more domains or specific addresses as needed.
+5. **Pick a login method**: *Zero Trust* → *Settings* → *Authentication*
+   - **One-time PIN** works immediately with no setup (emails a code to the visitor)
+   - Or add **Microsoft Entra ID / Azure AD** so staff sign in with their existing UN account
+6. Once Access is confirmed working, the in-page login can be removed entirely.
+
+### Managing users
+
+Add, remove, or audit access from *Zero Trust → Access → Applications → (your app) → Policies*.
+Changes take effect immediately and require no code change or redeploy.
+
 ## Deployment
 
 - **Hosting**: GitHub Pages (static, no build step — `index.html` is the entire app).
+  Migrating to Cloudflare Pages — see *Access control* above.
 - **RSS proxy**: a Cloudflare Worker (`cloudflare-worker/worker.js`) fetches RSS/HTML server-side to get around CORS. Its URL is set in `index.html` as `CF_WORKER_URL`. Public proxies (allorigins.win, corsproxy.io) are used as automatic fallback if the Worker is unreachable.
 - Google News queries deliberately skip the Worker — Google blocks requests from cloud/datacenter IP ranges for its RSS endpoint, so those queries go straight to the public proxies.
 

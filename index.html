@@ -447,21 +447,42 @@ input[type=checkbox]{accent-color:var(--blue);width:14px;height:14px;cursor:poin
 //  USER CONFIG — edit this block to add / remove users
 //  Keep this file in a secured internal network location.
 // ═══════════════════════════════════════════════════════════════
+// IMPORTANT — this browser-side check is a convenience gate, NOT security.
+// Anything in this file is readable and bypassable by anyone who opens the page.
+// Real access control is enforced by Cloudflare Access in front of the site
+// (see README → "Access control"). Never put a secret or sensitive data here.
+//
+// Passwords are stored as SHA-256 hashes so the source never contains a reusable
+// password. To add a user, generate a hash and add a row below:
+//   PowerShell:  $p="YourPassword"; [BitConverter]::ToString(
+//     [Security.Cryptography.SHA256]::Create().ComputeHash(
+//     [Text.Encoding]::UTF8.GetBytes($p))).Replace("-","").ToLower()
+//   Browser console (on the live site):  await sha256Hex("YourPassword")
 const USERS=[
-  {id:"admin",   name:"Administrator",  pw:"ROSEA2024"},
-  {id:"im1",     name:"IM Officer",     pw:"Ocha2024"},
-  {id:"analyst", name:"Analyst",        pw:"Monitor24"},
-  // Add more: {id:"username", name:"Display Name", pw:"Password123"}
+  {id:"admin",   name:"Administrator", pwHash:"0a24de2d94061151704b0c2a3fa1ecc1b3a0eeb64fadc2747de62ac108d267f1"},
+  {id:"im1",     name:"IM Officer",    pwHash:"bf1bd3a1b77c7a2df42e039397b98aa4bd2d45826c53878a36e4526a952f9ef5"},
+  {id:"analyst", name:"Analyst",       pwHash:"c1e36beb26c535f6e8ed3fc43c46bc2814c4ef55c1de99190fe75ec25ca7af6c"},
 ];
+
+async function sha256Hex(str){
+  const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(str));
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("");
+}
 // ═══════════════════════════════════════════════════════════════
 
 let currentUser=null;
 
-function login(){
+async function login(){
   const id=document.getElementById("loginId").value.trim().toLowerCase();
   const pw=document.getElementById("loginPw").value;
-  const user=USERS.find(u=>u.id===id&&u.pw===pw);
   const errEl=document.getElementById("authErr");
+  if(!window.crypto||!crypto.subtle){
+    errEl.textContent="Open this page over https:// — local file access is not supported.";
+    errEl.style.display="block";
+    return;
+  }
+  const hash=await sha256Hex(pw);
+  const user=USERS.find(u=>u.id===id&&u.pwHash===hash);
   if(user){
     currentUser={id:user.id,name:user.name};
     sessionStorage.setItem("rosea_auth",JSON.stringify(currentUser));
