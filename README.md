@@ -71,7 +71,11 @@ from the browser console. Never put a secret or sensitive data in `index.html`.
 Real access control is enforced **in front of** the site by Cloudflare Access (Zero Trust),
 which authenticates visitors before any application code is served. Free for up to 50 users.
 
-### One-time setup
+**Goal**: only UN staff can reach the tool, signing in with their existing Microsoft UN
+account. This is done in two stages, because stage 2 needs UN ICT involvement while stage 1
+does not — stage 1 already enforces "UN emails only" and can be live the same day.
+
+### Stage 1 — restrict to UN emails (no ICT needed)
 
 1. **Deploy to Cloudflare Pages** (Access can only protect sites served through Cloudflare):
    - Cloudflare dashboard → *Workers & Pages* → *Create* → *Pages* → *Connect to Git*
@@ -80,23 +84,72 @@ which authenticates visitors before any application code is served. Free for up 
      (an earlier attempt failed because Cloudflare tried to run a build — this app has none)
    - Deploy. You get a `*.pages.dev` URL.
 2. **Enable Zero Trust**: dashboard → *Zero Trust* → complete the free-plan signup if prompted.
-3. **Add an Access application**: *Zero Trust* → *Access* → *Applications* → *Add an application*
-   → *Self-hosted*
-   - Give it a name and point it at the `*.pages.dev` hostname from step 1
-4. **Add a policy** — this is where users are managed, never in code:
+   You will be asked to choose a **team domain**, giving you
+   `https://<team-name>.cloudflareaccess.com` — note this, stage 2 needs it.
+3. **Add an Access application**: *Zero Trust* → *Access* → *Applications* →
+   *Add an application* → *Self-hosted*
+   - Name it, and set the application domain to the `*.pages.dev` hostname from step 1
+4. **Add a policy** — this is where access is managed, never in code:
    - Action: **Allow**
    - Rule: *Emails ending in* → `@un.org`
-   - With this single rule there is no user list to maintain: any UN address gets in,
-     everyone else is blocked. Add more domains or specific addresses as needed.
-5. **Pick a login method**: *Zero Trust* → *Settings* → *Authentication*
-   - **One-time PIN** works immediately with no setup (emails a code to the visitor)
-   - Or add **Microsoft Entra ID / Azure AD** so staff sign in with their existing UN account
-6. Once Access is confirmed working, the in-page login can be removed entirely.
+   - Add further rules for any other domains your team uses (e.g. `@unocha.org`).
+   - With this rule there is no user list to maintain: any address on an approved UN
+     domain gets in, everyone else is blocked.
+5. **Login method**: *Zero Trust* → *Settings* → *Authentication* → *Login methods*
+   - **One-time PIN** is enabled by default and needs no setup — Cloudflare emails a
+     6-digit code to the address being used. Combined with the policy in step 4, only
+     someone who can receive mail at a UN address can get in.
+6. Test in a private window. A UN address should receive a code and reach the app;
+   any other address should be refused.
+
+At this point the tool is genuinely restricted to UN staff.
+
+### Stage 2 — Microsoft UN account sign-in (needs UN ICT)
+
+This replaces the emailed code with proper single sign-on, so staff who are already signed
+in to their UN Microsoft account go straight through. It requires an app registration in
+the UN's Entra ID (Azure AD) tenant, which normally only ICT/OICT administrators can create.
+
+**What to request from UN ICT** — forward this list:
+
+> Please register an application in the UN Entra ID tenant for Cloudflare Access SSO:
+>
+> - **Name**: `Cloudflare Access — OCHA ROSEA Media Monitor`
+> - **Platform**: Web
+> - **Redirect URI**: `https://<team-name>.cloudflareaccess.com/cdn-cgi/access/callback`
+> - **Delegated Microsoft Graph permissions**: `openid`, `profile`, `email`, `offline_access`,
+>   `User.Read` — all standard sign-in scopes; no mailbox, file or directory-wide read access
+>   is required
+> - **Please provide back**: Application (client) ID, Directory (tenant) ID, and a client
+>   secret value
+>
+> Group-based permissions are *not* required — access is scoped by email domain — so no
+> `Directory.Read.All` consent is needed.
+
+Keeping the permission request to sign-in scopes only (no directory read) usually makes
+approval much quicker, since nothing sensitive is being granted.
+
+**Once ICT returns the three values:**
+
+1. *Zero Trust* → *Settings* → *Authentication* → *Login methods* → *Add new* →
+   **Azure AD / Microsoft Entra ID**
+2. Paste the Application (client) ID, Client secret, and Directory (tenant) ID. Leave
+   *Support groups* off unless you later want group-based rules.
+3. Save, then use **Test** to confirm a UN account authenticates.
+4. Update the Access policy from step 4 above to also require
+   *Login method* → *Azure AD*, so Microsoft sign-in becomes the route in.
+5. Optionally disable **One-time PIN** so SSO is the only method.
+
+### After Access is live
+
+Once sign-in is confirmed working, the in-page login in `index.html` becomes redundant and
+should be removed — it adds no protection and creates a misleading impression of security.
 
 ### Managing users
 
-Add, remove, or audit access from *Zero Trust → Access → Applications → (your app) → Policies*.
-Changes take effect immediately and require no code change or redeploy.
+Day to day, access is managed at *Zero Trust → Access → Applications → (your app) →
+Policies*. Changes apply immediately with no code change or redeploy. Sign-in activity is
+auditable under *Zero Trust → Logs → Access*.
 
 ## Deployment
 
