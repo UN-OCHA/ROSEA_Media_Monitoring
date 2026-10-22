@@ -63,13 +63,15 @@ All of this lives in `index.html` as plain JS data structures — no build step 
 
 ## Access control
 
-**The login screen inside `index.html` is a convenience gate, not security.** Everything in a
-static site is readable and bypassable by anyone who opens the page — passwords are stored as
-SHA-256 hashes so the source contains no reusable password, but the gate itself can be skipped
-from the browser console. Never put a secret or sensitive data in `index.html`.
+Access control is enforced **in front of** the site by Cloudflare Access (Zero Trust), which
+authenticates the visitor before any application code is served. Free for up to 50 users.
 
-Real access control is enforced **in front of** the site by Cloudflare Access (Zero Trust),
-which authenticates visitors before any application code is served. Free for up to 50 users.
+There is **no login inside the app**. The previous in-page username/password screen was
+removed once Access went live: it was bypassable from the browser console and offered no real
+protection. The signed-in identity now comes from Access via `/cdn-cgi/access/get-identity`
+and is used to attribute exports; *Sign out* ends the Access session.
+
+Never put a secret or sensitive data in `index.html` — it is served to every visitor.
 
 **Goal**: only people with a UN email address can reach the tool, and they sign in using
 that email address. No Azure/Entra app registration is required.
@@ -87,13 +89,16 @@ Access is free for up to 50 users.
 | CORS proxy (`worker.js`) | `dark-base-93a2.suubow47.workers.dev` | **No — must stay open** |
 | Access team domain | `shrill-bird-52d2.cloudflareaccess.com` | — |
 
-The app is served by a Worker (`cloudflare-worker/app-worker.js`) rather than Cloudflare
-Pages. Pages was not used because connecting the repo requires installing the Cloudflare
-GitHub app on the UN-OCHA org, which needs org-owner approval, and `*.pages.dev` hostnames
-are awkward to attach to an Access application. A Worker subdomain avoids both problems.
+The app runs as a **Workers static-assets deployment**: `index.html` was uploaded directly,
+and Cloudflare serves it with no Worker script. Cloudflare Pages via Git was not used because
+connecting the repo requires installing the Cloudflare GitHub app on the UN-OCHA org, which
+needs org-owner approval.
 
-`app-worker.js` fetches `index.html` from the public repo instead of embedding it, so a
-`git push` updates the live app within ~5 minutes with no Worker redeploy.
+> **Updating the live app**: a `git push` does **not** update it. Re-upload `index.html` to
+> the `rosea-media-monitor` Worker after each change (*Workers & Pages* → the Worker →
+> upload new assets). If this becomes tedious, `cloudflare-worker/app-worker.js` is an
+> alternative script-based Worker that fetches `index.html` from the public repo instead, so
+> pushes go live automatically — deploy it as the Worker's code to switch approaches.
 
 > **Do not put the CORS proxy behind Access.** The app calls it with `fetch()` from the
 > browser, and those requests carry no Access session — they would receive a login redirect
@@ -102,9 +107,9 @@ are awkward to attach to an Access application. A Worker subdomain avoids both p
 
 ### Setup
 
-1. **Create the app Worker** — *Workers & Pages* → *Create* → *Workers*, name it
-   `rosea-media-monitor`, deploy, then open *Edit code* and replace the default code with
-   the contents of `cloudflare-worker/app-worker.js`. Deploy.
+1. **Deploy the app** — *Workers & Pages* → *Create* → *Upload assets*, name it
+   `rosea-media-monitor`, and upload `index.html`. This creates a static-assets Worker
+   (it has no code editor — that is expected).
 2. **Enable Zero Trust** — dashboard → *Zero Trust*. On first use you pick a **team name**,
    which becomes `https://<team-name>.cloudflareaccess.com`. Choose the **Free** plan.
 3. **Add an Access application** — *Zero Trust* → *Access* → *Applications* →
@@ -119,10 +124,21 @@ are awkward to attach to an Access application. A Worker subdomain avoids both p
      people will be locked out
    - There is no user list to maintain: any address on an approved domain gets in,
      everyone else is refused
-5. **Confirm the login method** — *Zero Trust* → *Settings* → *Authentication* →
-   *Login methods*. **One-time PIN** is available by default and needs no configuration.
-6. **Test** in a private window. A UN address should receive a code and reach the app;
+5. **Enable the login method** — add **One-time PIN** as a login method, and ensure the
+   application accepts it (application → *Login methods* tab → *Accept all available
+   identity providers*). Without this the login page offers only "Cloudflare" and shows
+   no email field.
+6. **Name the application** `ROSEA Media Monitor` — this text appears on the login page.
+   Leaving it as a raw `workers.dev` hostname makes the page look like phishing to staff
+   being asked to enter their work email.
+7. **Test** in a private window. A UN address should receive a code and reach the app;
    a personal address (e.g. Gmail) should be refused.
+
+> **Every Allow policy widens access.** Policies are OR'd together, so access is only as
+> restrictive as the most permissive Allow policy attached to the application. Adding a
+> second policy for a personal address silently defeats the `@un.org` restriction — prefer
+> adding extra addresses as additional *values* inside the one policy, so the full list of
+> who can get in is visible in a single place.
 
 ### Known friction points
 
