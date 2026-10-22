@@ -79,28 +79,41 @@ Cloudflare emails them a 6-digit code ("one-time PIN"), and an Access *policy* a
 approved UN email domains. Someone who cannot receive mail at a UN address cannot get in.
 Access is free for up to 50 users.
 
+### Current deployment
+
+| Piece | Where | Behind Access? |
+|---|---|---|
+| App (serves `index.html`) | `rosea-media-monitor.suubow47.workers.dev` | **Yes** |
+| CORS proxy (`worker.js`) | `dark-base-93a2.suubow47.workers.dev` | **No — must stay open** |
+| Access team domain | `shrill-bird-52d2.cloudflareaccess.com` | — |
+
+The app is served by a Worker (`cloudflare-worker/app-worker.js`) rather than Cloudflare
+Pages. Pages was not used because connecting the repo requires installing the Cloudflare
+GitHub app on the UN-OCHA org, which needs org-owner approval, and `*.pages.dev` hostnames
+are awkward to attach to an Access application. A Worker subdomain avoids both problems.
+
+`app-worker.js` fetches `index.html` from the public repo instead of embedding it, so a
+`git push` updates the live app within ~5 minutes with no Worker redeploy.
+
+> **Do not put the CORS proxy behind Access.** The app calls it with `fetch()` from the
+> browser, and those requests carry no Access session — they would receive a login redirect
+> instead of RSS, and most sources would silently return nothing. Keep the two Workers on
+> separate subdomains and only protect the app one.
+
 ### Setup
 
-1. **Deploy to Cloudflare Pages** — Access can only protect sites served through Cloudflare,
-   so the app moves off GitHub Pages.
-   - Cloudflare dashboard → *Workers & Pages* → *Create* → *Pages*
-   - *Connect to Git* and select the `ROSEA_Media_Monitoring` repo. If the UN-OCHA org does
-     not permit installing the Cloudflare GitHub app, use **Direct Upload** instead and drag
-     in `index.html` — the app is a single file, so this works fine (the trade-off is that
-     future changes need re-uploading rather than deploying automatically on push).
-   - Build settings: **Framework preset `None`** · **Build command: empty** ·
-     **Output directory `/`**
-     (an earlier attempt failed because Cloudflare tried to run a build — this app has none)
-   - Deploy. Note the `*.pages.dev` URL it gives you.
+1. **Create the app Worker** — *Workers & Pages* → *Create* → *Workers*, name it
+   `rosea-media-monitor`, deploy, then open *Edit code* and replace the default code with
+   the contents of `cloudflare-worker/app-worker.js`. Deploy.
 2. **Enable Zero Trust** — dashboard → *Zero Trust*. On first use you pick a **team name**,
    which becomes `https://<team-name>.cloudflareaccess.com`. Choose the **Free** plan.
 3. **Add an Access application** — *Zero Trust* → *Access* → *Applications* →
    *Add an application* → *Self-hosted*
-   - Name it (e.g. `ROSEA Media Monitor`)
-   - Set the application domain to the `*.pages.dev` hostname from step 1
+   - Destination → **Subdomain** `rosea-media-monitor`, **Domain** `suubow47.workers.dev`
+   - Leave **Path** empty — it takes a path such as `/admin`, not a full URL
    - Session duration: 24 hours or 1 week, as preferred
 4. **Add the policy** — this is where access is controlled, never in code:
-   - Policy name: `UN staff only` · Action: **Allow**
+   - Policy name: `Only UN emails` · Action: **Allow**
    - Include → selector **Emails ending in** → value `@un.org`
    - Add a value for every other domain your team uses (e.g. `@unocha.org`) or those
      people will be locked out
@@ -108,19 +121,19 @@ Access is free for up to 50 users.
      everyone else is refused
 5. **Confirm the login method** — *Zero Trust* → *Settings* → *Authentication* →
    *Login methods*. **One-time PIN** is available by default and needs no configuration.
-6. **Test** in a private window: visit the `*.pages.dev` URL. A UN address should receive a
-   code and reach the app; a personal address (e.g. Gmail) should be refused.
+6. **Test** in a private window. A UN address should receive a code and reach the app;
+   a personal address (e.g. Gmail) should be refused.
 
 ### Known friction points
 
 - **Cloudflare asks for a payment method** to activate Zero Trust, even on the free 50-user
   tier. Nothing is charged at that tier, but a card must be on file.
-- **If Cloudflare will not accept the `*.pages.dev` hostname** for the Access application,
-  attach a custom domain to the Pages project (Pages → *Custom domains*) and protect that
-  hostname instead.
-- **Account ownership**: if Zero Trust is set up under a personal Cloudflare account, access
-  control for a UN tool depends on that individual's account. Worth migrating to a
+- **Account ownership**: Zero Trust is currently set up under a personal Cloudflare account,
+  so access control for a UN tool depends on one individual's account. Worth migrating to a
   UN-administered Cloudflare account when possible.
+- **Verify after changing any Access destination** that the proxy Worker is still reachable:
+  `curl -I https://dark-base-93a2.suubow47.workers.dev/` should return `200`, not a `302`
+  to a login page.
 
 ### After Access is live
 
