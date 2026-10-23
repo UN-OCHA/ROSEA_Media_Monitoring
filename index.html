@@ -844,45 +844,36 @@ function parseRSS(xmlStr){
 }
 
 // ─── PROXY FETCH ─────────────────────────────────────────────────────────────
-// Races up to 3 proxies — whichever returns valid XML/JSON first wins.
-// Primary: your own Cloudflare Worker (reliable, free, global edge, no blocked IPs).
-// Set CF_WORKER_URL below after deploying cloudflare-worker/worker.js.
-// Fallbacks: public proxies used automatically if Worker is not yet configured.
-// Google News (skipVercel=true) skips the Worker — Google blocks all datacenter IPs.
-
-// ← REPLACE with your Worker URL after deploying (see cloudflare-worker/worker.js)
-const CF_WORKER_URL="https://dark-base-93a2.suubow47.workers.dev";
+// Primary path is /__proxy, served by the same Worker that serves this page
+// (cloudflare-worker/auth-worker.js). Being same-origin means no CORS, and it
+// cannot break from a workers.dev subdomain change the way an absolute URL did.
+//
+// allorigins is kept only as a last resort. corsproxy.io was removed: keyless
+// use now returns 403 ("Anonymous legacy proxy URLs are no longer supported").
+const CF_WORKER_URL="/__proxy";
 
 function mkSignal(ms){
   try{return AbortSignal.timeout(ms);}
   catch(e){const c=new AbortController();setTimeout(()=>c.abort(),ms);return c.signal;}
 }
-async function proxyFetch(url,timeout=11000,skipWorker=false){
+async function proxyFetch(url,timeout=11000){
   return new Promise(resolve=>{
     let done=false;
     const isUsable=v=>{
       if(!v||typeof v!=="string"||v.length<80)return false;
       const t=v.trimStart();
-      // For JSON responses: only accept the allorigins.win wrapper format {"contents":"..."}
-      // to prevent Cloudflare Worker error JSON ({"error":"..."}) from blocking fallbacks.
+      // A bare {...} is only accepted as the allorigins wrapper, so an error
+      // payload from one proxy cannot resolve the race before a good response.
       if(t.startsWith("{"))return t.includes('"contents"');
       return t.startsWith("<?xml")||t.startsWith("<rss")||t.startsWith("<feed")||
              t.startsWith("<channel")||t.startsWith("<rdf:");
     };
     const ok=v=>{if(!done&&isUsable(v)){done=true;resolve(v);}};
     const fail=()=>{};
-    // Primary: Cloudflare Worker (best reliability — set CF_WORKER_URL above)
-    if(!skipWorker&&CF_WORKER_URL){
-      fetch(`${CF_WORKER_URL}?url=${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
-        .then(r=>r.ok?r.text():Promise.reject()).then(t=>ok(t)).catch(fail);
-    }
-    // Fallback 1: allorigins.win
+    fetch(`${CF_WORKER_URL}?url=${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
+      .then(r=>r.ok?r.text():Promise.reject()).then(t=>ok(t)).catch(fail);
     fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
       .then(r=>r.json()).then(j=>{if(j&&j.contents)ok(j.contents);}).catch(fail);
-    // Fallback 2: corsproxy.io
-    fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
-      .then(r=>r.ok?r.text():Promise.reject()).then(t=>ok(t)).catch(fail);
-    // Hard deadline
     setTimeout(()=>{if(!done){done=true;resolve(null);}},timeout+500);
   });
 }
@@ -893,15 +884,10 @@ async function proxyFetchHTML(url,timeout=12000){
     let done=false;
     const ok=v=>{if(!done&&v&&typeof v==="string"&&v.length>500){done=true;resolve(v);}};
     const fail=()=>{};
-    // Cloudflare Worker (accepts HTML just fine)
-    if(CF_WORKER_URL){
-      fetch(`${CF_WORKER_URL}?url=${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
-        .then(r=>r.ok?r.text():Promise.reject()).then(t=>ok(t)).catch(fail);
-    }
+    fetch(`${CF_WORKER_URL}?url=${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
+      .then(r=>r.ok?r.text():Promise.reject()).then(t=>ok(t)).catch(fail);
     fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
       .then(r=>r.json()).then(j=>{if(j&&j.contents)ok(j.contents);}).catch(fail);
-    fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`,{signal:mkSignal(timeout)})
-      .then(r=>r.ok?r.text():Promise.reject()).then(t=>ok(t)).catch(fail);
     setTimeout(()=>{if(!done){done=true;resolve(null);}},timeout+500);
   });
 }
@@ -970,6 +956,14 @@ async function scrapeHeadlines(site,country,isRegional=false){
 }
 
 // ─── SOURCE 1: ReliefWeb API ──────────────────────────────────
+// v1 was decommissioned ("API version 'v1' has been decommissioned, use 'v2'").
+// v2 additionally rejects unregistered appnames with HTTP 403:
+//   "You are not using an approved appname."
+// Register one at https://apidoc.reliefweb.int/parameters#appname and set it
+// here. Until then ReliefWeb returns nothing and the other sources carry the
+// scan — no other source is affected.
+const RELIEFWEB_APPNAME="rosea-monitor";
+
 async function fetchReliefWeb(countries,days){
   const results=[];
   const since=new Date();since.setDate(since.getDate()-days);
@@ -982,7 +976,7 @@ async function fetchReliefWeb(countries,days){
   for(let i=0;i<countries.length;i+=5){
     const batch=countries.slice(i,i+5);
     const params=[
-      "appname=rosea-monitor","preset=latest","limit=50",
+      `appname=${RELIEFWEB_APPNAME}`,"preset=latest","limit=50",
       "fields[include][]=title","fields[include][]=body","fields[include][]=date.created",
       "fields[include][]=source","fields[include][]=primary_country","fields[include][]=url",
       "filter[operator]=AND",`filter[conditions][0][field]=date.created`,
@@ -991,7 +985,7 @@ async function fetchReliefWeb(countries,days){
       ...batch.map((c,idx)=>`filter[conditions][1][conditions][${idx}][field]=primary_country.name&filter[conditions][1][conditions][${idx}][value]=${encodeURIComponent(RELIEFWEB_NAME_OVERRIDE[c]||c)}`),
       "sort[]=date.created:desc"
     ].join("&");
-    const text=await rwFetch(`https://api.reliefweb.int/v1/reports?${params}`);
+    const text=await rwFetch(`https://api.reliefweb.int/v2/reports?${params}`);
     if(!text)continue;
     try{
       const data=JSON.parse(text);
@@ -1378,7 +1372,7 @@ async function fetchGoogleNews(countries,days){
   async function fetchOne({q,country}){
     try{
       const rssUrl=`https://news.google.com/rss/search?q=${encodeURIComponent(q+whenHint+excludeHint)}&hl=en-US&gl=US&ceid=US:en`;
-      const text=await proxyFetch(rssUrl,TO,true); // skipVercel — Google blocks datacenter IPs
+      const text=await proxyFetch(rssUrl,TO);
       if(!text)return;
       // Per-country queries (q contains "Country Name") are already scoped by the search
       // itself, so a generic fallback is safe. Broad/org/regional queries (country:"ROSEA region"
