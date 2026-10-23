@@ -63,15 +63,21 @@ All of this lives in `index.html` as plain JS data structures — no build step 
 
 ## Access control
 
-Access control is enforced **in front of** the site by Cloudflare Access (Zero Trust), which
-authenticates the visitor before any application code is served. Free for up to 50 users.
+Access is enforced by **`cloudflare-worker/auth-worker.js`**, which checks a shared user ID
+and password **server-side** and only serves the app to an authenticated session.
 
-There is **no login inside the app**. The previous in-page username/password screen was
-removed once Access went live: it was bypassable from the browser console and offered no real
-protection. The signed-in identity now comes from Access via `/cdn-cgi/access/get-identity`
-and is used to attribute exports; *Sign out* ends the Access session.
+- Credentials are stored as **Cloudflare Worker secrets**, so they are never in this repo
+  and never sent to the browser.
+- A successful login sets a **signed, HTTP-only session cookie** (HMAC-SHA256, 12 hours).
+  A tampered, self-made, expired, or differently-signed cookie is rejected.
+- `index.html` is only fetched and returned *after* the session is validated.
 
-Never put a secret or sensitive data in `index.html` — it is served to every visitor.
+There is **no login inside `index.html`**, and no credential belongs in it. An in-page check
+is not security: the file is served to the browser, so anything in it can be read, and the
+login can be skipped from the developer console. That is why the check lives in the Worker.
+
+> Never put a secret in `index.html` — it is downloadable by anyone who reaches the app, and
+> this repo is public.
 
 **Goal**: only people with a UN email address can reach the tool, and they sign in using
 that email address. No Azure/Entra app registration is required.
@@ -83,11 +89,10 @@ Access is free for up to 50 users.
 
 ### Current deployment
 
-| Piece | Where | Behind Access? |
+| Piece | Where | Protected? |
 |---|---|---|
-| App (serves `index.html`) | `rosea-media-monitor.suubow47.workers.dev` | **Yes** |
+| App + login (`auth-worker.js`) | `rosea-media-monitor.suubow47.workers.dev` | **Password required** |
 | CORS proxy (`worker.js`) | `dark-base-93a2.suubow47.workers.dev` | **No — must stay open** |
-| Access team domain | `shrill-bird-52d2.cloudflareaccess.com` | — |
 
 The app runs as a **Workers static-assets deployment**: `index.html` was uploaded directly,
 and Cloudflare serves it with no Worker script. Cloudflare Pages via Git was not used because
@@ -107,38 +112,39 @@ needs org-owner approval.
 
 ### Setup
 
-1. **Deploy the app** — *Workers & Pages* → *Create* → *Upload assets*, name it
-   `rosea-media-monitor`, and upload `index.html`. This creates a static-assets Worker
-   (it has no code editor — that is expected).
-2. **Enable Zero Trust** — dashboard → *Zero Trust*. On first use you pick a **team name**,
-   which becomes `https://<team-name>.cloudflareaccess.com`. Choose the **Free** plan.
-3. **Add an Access application** — *Zero Trust* → *Access* → *Applications* →
-   *Add an application* → *Self-hosted*
-   - Destination → **Subdomain** `rosea-media-monitor`, **Domain** `suubow47.workers.dev`
-   - Leave **Path** empty — it takes a path such as `/admin`, not a full URL
-   - Session duration: 24 hours or 1 week, as preferred
-4. **Add the policy** — this is where access is controlled, never in code:
-   - Policy name: `Only UN emails` · Action: **Allow**
-   - Include → selector **Emails ending in** → value `@un.org`
-   - Add a value for every other domain your team uses (e.g. `@unocha.org`) or those
-     people will be locked out
-   - There is no user list to maintain: any address on an approved domain gets in,
-     everyone else is refused
-5. **Enable the login method** — add **One-time PIN** as a login method, and ensure the
-   application accepts it (application → *Login methods* tab → *Accept all available
-   identity providers*). Without this the login page offers only "Cloudflare" and shows
-   no email field.
-6. **Name the application** `ROSEA Media Monitor` — this text appears on the login page.
-   Leaving it as a raw `workers.dev` hostname makes the page look like phishing to staff
-   being asked to enter their work email.
-7. **Test** in a private window. A UN address should receive a code and reach the app;
-   a personal address (e.g. Gmail) should be refused.
+1. **Create the Worker** — *Workers & Pages* → *Create* → *Workers*, name it
+   `rosea-media-monitor`, deploy the starter, then *Edit code*, replace everything with
+   `cloudflare-worker/auth-worker.js`, and deploy.
+2. **Add the secrets** — Worker → *Settings* → *Variables and Secrets*. Add both as type
+   **Secret** (encrypted), not plain text:
 
-> **Every Allow policy widens access.** Policies are OR'd together, so access is only as
-> restrictive as the most permissive Allow policy attached to the application. Adding a
-> second policy for a personal address silently defeats the `@un.org` restriction — prefer
-> adding extra addresses as additional *values* inside the one policy, so the full list of
-> who can get in is visible in a single place.
+   | Name | Value |
+   |---|---|
+   | `AUTH_USERS` | `{"admin":"…","im1":"…","analyst":"…"}` |
+   | `SESSION_SECRET` | a long random string, 40+ characters |
+
+   Until both are set the Worker returns *"Not configured"* and never serves the app.
+3. **Test** at `https://rosea-media-monitor.suubow47.workers.dev/` — you should get the
+   login page, and a wrong password should be refused.
+
+### Managing users
+
+Edit the `AUTH_USERS` secret and redeploy. Format is `{"userid":"password"}`; add or remove
+entries to grant or revoke access. Passwords never appear in this repo or in the page source.
+
+To force everyone to sign in again (for example after someone leaves), change
+`SESSION_SECRET` — this invalidates every existing session cookie immediately.
+
+### Limitations
+
+- **Shared credentials** are not attributable to an individual and cannot be revoked for one
+  person without changing the password for everyone. Cloudflare Access with per-person email
+  sign-in is stronger if that ever matters.
+- **No brute-force lockout.** A failed attempt is delayed ~500 ms, but there is no counter or
+  IP ban. Use long random passwords; add a Cloudflare Rate Limiting rule on `/__login` if the
+  app is widely known.
+- **`index.html` is public** on GitHub, so the application *code* is readable even though the
+  hosted instance requires a password. This is fine as long as no secret is ever put in it.
 
 ### Known friction points
 

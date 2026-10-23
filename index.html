@@ -402,21 +402,20 @@ input[type=checkbox]{accent-color:var(--blue);width:14px;height:14px;cursor:poin
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  IDENTITY — supplied by Cloudflare Access, not by this file
+//  IDENTITY — supplied by the Worker, not by this file
 // ═══════════════════════════════════════════════════════════════
-// Access authenticates the visitor before this page is ever served, so there is
-// no login here. The signed-in identity is read from the Access identity endpoint
-// and used to attribute exports. Access management lives in the Cloudflare
-// dashboard (Zero Trust → Access → Policies), never in code.
+// cloudflare-worker/auth-worker.js checks the password server-side and only
+// serves this page to an authenticated session, so there is no login here and
+// no credential belongs in this file. Passwords live in Worker secrets.
 
 let currentUser=null;
 
 async function loadIdentity(){
   try{
-    const r=await fetch("/cdn-cgi/access/get-identity",{cache:"no-store"});
+    const r=await fetch("/__me",{cache:"no-store"});
     if(r.ok){
       const d=await r.json();
-      if(d&&d.email)currentUser={id:d.email,name:d.name||d.email};
+      if(d&&d.name)currentUser={id:d.name,name:d.name};
     }
   }catch(e){}
   if(!currentUser)currentUser={id:"",name:"ROSEA IM Unit"};
@@ -424,8 +423,8 @@ async function loadIdentity(){
 }
 
 function logout(){
-  // Ends the Cloudflare Access session, returning the user to the login page
-  window.location.href="/cdn-cgi/access/logout";
+  // Clears the signed session cookie, returning the user to the login page
+  window.location.href="/__logout";
 }
 
 // ─── DATA ─────────────────────────────────────────────────────
