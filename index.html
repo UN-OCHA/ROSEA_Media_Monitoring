@@ -428,18 +428,6 @@ function logout(){
   window.location.href="/cdn-cgi/access/logout";
 }
 
-(function init(){
-  // Restore keyword and site state that was saved before last refresh
-  try{const k=sessionStorage.getItem("rosea_kw");if(k)customKeywords=JSON.parse(k);}catch(e){}
-  try{const cs=sessionStorage.getItem("rosea_sites");if(cs)customSites=JSON.parse(cs);}catch(e){}
-  try{const ek=sessionStorage.getItem("rosea_exkw");if(ek)customExcludeKeywords=JSON.parse(ek);}catch(e){}
-  draw();
-  renderKwTags();
-  renderSiteTags();
-  renderExKwTags();
-  loadIdentity();
-})();
-
 // ─── DATA ─────────────────────────────────────────────────────
 const COUNTRIES=[
   ["angola","Angola"],["botswana","Botswana"],["burundi","Burundi"],["comoros","Comoros"],
@@ -2061,6 +2049,22 @@ function exportAIWord(){
 
 function iso(){return new Date().toISOString().slice(0,10);}
 function dl(blob,name){const u=URL.createObjectURL(blob);const a=document.createElement("a");a.href=u;a.download=name;a.click();URL.revokeObjectURL(u);}
+
+// ─── STARTUP ──────────────────────────────────────────────────
+// Must stay at the end of the script: it calls draw(), which reads COUNTRIES /
+// REGIONS / sc. Those are const/let, so they are not hoisted — running this any
+// earlier throws a ReferenceError and aborts the whole script.
+(function init(){
+  // Restore keyword and site state that was saved before last refresh
+  try{const k=sessionStorage.getItem("rosea_kw");if(k)customKeywords=JSON.parse(k);}catch(e){}
+  try{const cs=sessionStorage.getItem("rosea_sites");if(cs)customSites=JSON.parse(cs);}catch(e){}
+  try{const ek=sessionStorage.getItem("rosea_exkw");if(ek)customExcludeKeywords=JSON.parse(ek);}catch(e){}
+  draw();
+  renderKwTags();
+  renderSiteTags();
+  renderExKwTags();
+  loadIdentity();
+})();
 </script>
 </body>
 </html>
