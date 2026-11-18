@@ -1778,6 +1778,8 @@ function exportMediaSweep(){
   const BLUE="#418FDE";
   const ord={critical:0,high:1,medium:2,monitor:3};
   const byRank=(a,b)=>(ord[a.severity]??3)-(ord[b.severity]??3)||new Date(b.date||0)-new Date(a.date||0);
+  // The sweep spells some countries out in full, unlike the compact sidebar label.
+  const SWEEP_COUNTRY_LABEL={"DR Congo":"Democratic Republic of Congo"};
 
   // Sort each alert into: a specific country (and its REGIONS group), a region-only bucket
   // (article discusses a region broadly with no single country named), or generic "regional".
@@ -1816,20 +1818,59 @@ function exportMediaSweep(){
     seenHCountry.add(a.country);highlights.push(a);
   }
 
+  // The official sweep nests other outlets' coverage of the same event under the
+  // lead article as "Related:", rather than repeating it as a separate entry.
+  // Titles are compared on significant words only, so "Drone strike kills 12 in
+  // Tigray" and "A dozen killed in army drone strike in Tigray" group together.
+  const STOP=new Set(["the","a","an","and","or","of","in","on","to","for","at","as","by","with",
+    "from","after","over","amid","into","its","is","are","was","were","be","been","has","have",
+    "had","that","this","than","new","says","said","say","more","most","up","down","out","no","not"]);
+  // Light stemming so "troops"/"troop" and "killed"/"kills" count as the same word.
+  function stem(w){
+    for(const suf of ["ies","ing","ed","es","s"]){
+      if(w.endsWith(suf)&&w.length-suf.length>=4)
+        return suf==="ies"?w.slice(0,-3)+"y":w.slice(0,-suf.length);
+    }
+    return w;
+  }
+  function titleTokens(t){
+    return new Set((t||"").toLowerCase().replace(/[^a-z0-9\s]/g," ").split(/\s+/)
+      .filter(w=>w.length>3&&!STOP.has(w)).map(stem));
+  }
+  function similar(a,b){
+    const x=titleTokens(a.title),y=titleTokens(b.title);
+    if(x.size<3||y.size<3)return false;
+    let shared=0;for(const w of x)if(y.has(w))shared++;
+    return shared/Math.min(x.size,y.size)>=0.45;
+  }
+  // Returns [{lead, related:[...]}] with the highest-ranked article as lead.
+  function clusterArticles(arts){
+    const out=[];
+    for(const a of [...arts].sort(byRank)){
+      const hit=out.find(c=>similar(c.lead,a));
+      if(hit)hit.related.push(a); else out.push({lead:a,related:[]});
+    }
+    return out;
+  }
+
   const articleBlock=a=>`
     <p style="margin:0 0 2pt 0;"><a href="${a.url}" style="color:${BLUE};">${esc(a.title)}</a>${a.source?` (${esc(a.source)})`:""}</p>
     <p style="margin:0 0 10pt 0;">${esc(a.summary)}</p>`;
+  // Related items carry the headline and source only — no summary — as in the official layout.
+  const relatedBlock=rel=>rel.length?`
+    <p style="margin:0 0 2pt 0;"><i>Related:</i></p>`+rel.map(a=>`
+    <p style="margin:0 0 2pt 0;"><a href="${a.url}" style="color:${BLUE};">${esc(a.title)}</a>${a.source?` (${esc(a.source)})`:""}</p>`).join("")+`
+    <p style="margin:0 0 10pt 0;"></p>`:"";
+  const renderArticles=arts=>clusterArticles(arts)
+    .map(c=>articleBlock(c.lead)+relatedBlock(c.related)).join("");
+
   const subRegionalBlock=arts=>{
     if(!arts.length)return"";
-    let h=`<p style="margin:10pt 0 4pt 0;"><b>SUB-REGIONAL</b></p>`;
-    arts.sort(byRank).forEach(a=>h+=articleBlock(a));
-    return h;
+    return `<p style="margin:10pt 0 4pt 0;"><b>SUB-REGIONAL</b></p>`+renderArticles(arts);
   };
-  const countryBlock=(nm,arts)=>{
-    let h=`<p style="margin:10pt 0 4pt 0;font-family:Arial,sans-serif;"><b>${esc(nm.toUpperCase())}</b></p>`;
-    arts.sort(byRank).forEach(a=>h+=articleBlock(a));
-    return h;
-  };
+  const countryBlock=(nm,arts)=>
+    `<p style="margin:10pt 0 4pt 0;font-family:Arial,sans-serif;"><b>${esc((SWEEP_COUNTRY_LABEL[nm]||nm).toUpperCase())}</b></p>`
+    +renderArticles(arts);
   const regionHeader=label=>`<p style="margin:18pt 0 4pt 0;font-family:Arial,sans-serif;"><b style="color:${BLUE};">${label}</b></p>`;
   const buildRegionCountries=regionId=>{
     const reg=REGIONS.find(r=>r.id===regionId);
