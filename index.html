@@ -531,23 +531,23 @@ const COUNTRY_MEDIA={
   kenya:["citizen.digital","capitalfm.co.ke","kenyanews.go.ke","nation.africa","standardmedia.co.ke","the-star.co.ke"],
   lesotho:["lesothotribune.co.ls","thepost.co.ls"],
   madagascar:["midi-madagasikara.mg","lagazette-dgi.com","laverite.mg","lexpress.mg","madagascar-tribune.com","malagasynews.com"],
-  malawi:["malawivoice.com","malawi24.com","nyasatimes.com","times.mw","maravipost.com"],
+  malawi:["malawivoice.com","malawi24.com","nyasatimes.com","times.mw","maravipost.com","mwnation.com"],
   mauritius:["lexpress.mu","inside.news"],
   mozambique:["cartamz.com","aimnews.org","clubofmozambique.com","jornalnoticias.co.mz"],
   namibia:["namibian.com.na","nampa.org","neweralive.na","nbcnews.na"],
   rwanda:["ktpress.rw","newtimes.co.rw","taarifa.rw","rwandatoday.africa"],
   seychelles:["nation.sc","seychellesnewsagency.com"],
   somalia:["sonna.so","garoweonline.com","somaliguardian.com","hiiraan.com","mustaqbalmedia.net","shabellemedia.com"],
-  south_africa:["dailymaverick.co.za","iol.co.za","ewn.co.za","mg.co.za","timeslive.co.za","news24.com","sabcnews.com"],
+  south_africa:["dailymaverick.co.za","iol.co.za","ewn.co.za","mg.co.za","timeslive.co.za","news24.com","sabcnews.com","citizen.co.za"],
   south_sudan:["eyeradio.org","radiotamazuj.org"],
   sudan:["darfur24.com","radiodabanga.org","dabangasudan.org","suna-sd.net","sudantribune.com","sudanspost.com"],
   tanzania:["dailynews.co.tz","thecitizen.co.tz","ippmedia.com","mwananchi.co.tz"],
   uganda:["monitor.co.ug","independent.co.ug","nbs.ug","observer.ug","nilepost.co.ug","ugandaradionetwork.net","newvision.co.ug","ugandatimes.ug"],
   zambia:["diggers.news","lusakatimes.com","mwebantu.com","times.co.zm","daily-mail.co.zm","zambianeye.com"],
-  zimbabwe:["bulawayo24.com","cite.org.zw","newzimbabwe.com","herald.co.zw","theindependent.co.zw","newsday.co.zw","zimlive.com"]
+  zimbabwe:["bulawayo24.com","cite.org.zw","newzimbabwe.com","herald.co.zw","heraldonline.co.zw","theindependent.co.zw","newsday.co.zw","zimlive.com"]
 };
 // Regional outlets checked on every scan regardless of country selection
-const REGIONAL_MEDIA=["thenewhumanitarian.org","theafricareport.com","allafrica.com","africanews.com","rfi.fr","france24.com","voanews.com","bbc.com","aljazeera.com"];
+const REGIONAL_MEDIA=["thenewhumanitarian.org","theafricareport.com","allafrica.com","africanews.com","rfi.fr","france24.com","voanews.com","bbc.com","aljazeera.com","aa.com.tr","en.majalla.com"];
 
 // Known aggregator/scraper domains that republish content — filter these from results
 const BLOCKED_DOMAINS=new Set([
@@ -728,7 +728,20 @@ function filterByTheme(alerts){
   return alerts.filter(a=>active.has(a.theme)||a.theme==="General");
 }
 // Master list of humanitarian keywords — article must have at least one in title+summary
-const HUM_KEYWORDS=["humanitarian","conflict","violence","armed","clashes","clash","attack","attacks","militia","rebel","war","airstrike","airstrikes","shelling","bombing","atrocity","refugee","refugees","displacement","idp","idps","displaced","displacement","flee","asylum","camp","returnee","food insecurity","famine","hunger","malnutrition","ipc","starvation","crop failure","cholera","outbreak","outbreaks","epidemic","measles","mpox","malaria","ebola","polio","vaccination","disease","diseases","flood","floods","flooding","cyclone","cyclones","drought","droughts","earthquake","landslide","landslides","storm","disaster","disasters","emergency","emergencies","crisis","crises","casualties","deaths","killed","injured","evacuated","evacuations","ceasefire","coup","protest","protests","unrest","sanctions","relief","aid","humanitarian response","protection","insecurity","acute","wfp","unhcr","unicef","ocha","icrc","msf","iom","ifrc","save the children","gbv","sexual violence","gender-based violence","abduction","abducted","kidnapping","siege","locust","armyworm","heat wave","heatwave","mass graves","ethnic violence","humanitarian workers","aid workers","peacekeeping","humanitarian crisis","election","elections","electoral","ballot","polling","vote","voter","referendum"];
+const HUM_KEYWORDS=["humanitarian","conflict","violence","armed","clashes","clash","attack","attacks","militia","rebel","war","airstrike","airstrikes","shelling","bombing","atrocity","refugee","refugees","displacement","idp","idps","displaced","displacement","flee","asylum","camp","returnee","food insecurity","famine","hunger","malnutrition","ipc","starvation","crop failure","cholera","outbreak","outbreaks","epidemic","measles","mpox","malaria","ebola","polio","vaccination","disease","diseases","flood","floods","flooding","cyclone","cyclones","drought","droughts","earthquake","landslide","landslides","storm","disaster","disasters","emergency","emergencies","crisis","crises","casualties","deaths","killed","injured","evacuated","evacuations","ceasefire","coup","protest","protests","unrest","sanctions","relief","aid","humanitarian response","protection","insecurity","acute","wfp","unhcr","unicef","ocha","icrc","msf","iom","ifrc","save the children","gbv","sexual violence","gender-based violence","abduction","abducted","kidnapping","siege","locust","armyworm","heat wave","heatwave","mass graves","ethnic violence","humanitarian workers","aid workers","peacekeeping","humanitarian crisis","election","elections","electoral","ballot","polling","vote","voter","referendum",
+// French — DRC/Burundi outlets (actualite.cd, radiookapi, rfi) publish in French and the
+// team translates them by hand; without these their articles are dropped as non-humanitarian
+"humanitaire","crise","urgence","conflit","violence","attaque","affrontements","insécurité",
+"déplacés","deplaces","réfugiés","refugies","inondation","inondations","sécheresse","secheresse",
+"choléra","cholera","épidémie","epidemie","rougeole","paludisme","malnutrition","famine",
+"insécurité alimentaire","glissement de terrain","pluies","victimes","tués","blesses","blessés",
+"aide humanitaire","vaccination","enlèvement","sinistrés","séisme","cyclone",
+// Portuguese — Mozambique and Angola outlets (jornalnoticias, angop, lusa)
+"humanitária","humanitaria","crise humanitária","emergência","emergencia","conflito",
+"violência","violencia","ataque","deslocados","refugiados","inundação","inundações",
+"inundacoes","seca","cólera","epidemia","sarampo","malária","desnutrição","desnutricao",
+"insegurança alimentar","deslizamento","chuvas","mortos","feridos","ciclone","vacinação",
+"surto","fome","gafanhoto","gafanhotos","praga","peste","colheita","criquet","récolte"];
 
 // These sources only publish humanitarian/disaster content — no keyword check needed
 const TRUSTED_HUM_SOURCES=new Set(["reliefweb","gdacs","unnews","who","fewsnet"]);
@@ -1100,10 +1113,13 @@ async function fetchAllAfrica(days){
 // ─── SOURCE 7: Direct RSS from country & regional media ───────
 // Sites known to have NO standard RSS feed — skip them
 const NO_RSS_SITES=new Set([
-  "kenyanews.go.ke","ena.et","sona.so","suna-sd.net","dailynews.co.tz",
+  "kenyanews.go.ke","ena.et","sona.so","suna-sd.net",
   "nbs.ug","adi.dj","asenatv.com","shabait.com","angop.ao",
   "fanabc.com","abpinfo.bi","inside.news","nation.sc","jornalnoticias.co.mz",
-  "aimnews.org","nbcnews.na","nampa.org","dailynews.gov.bw","lesothotribune.co.ls",
+  "nbcnews.na","nampa.org","dailynews.gov.bw","lesothotribune.co.ls",
+  // Probed 2026-11-18: no usable feed at any common path — homepage-scraped instead
+  "addisstandard.com","lexpress.mg","namibian.com.na","sudantribune.com",
+  "newzimbabwe.com","habarizacomores.com","observer.ug","mwnation.com",
   "rwandatoday.africa" // RSS feed republishes stale articles — scrape homepage instead
 ]);
 // Sites whose RSS is NOT at /feed/ — override URL here
@@ -1120,20 +1136,23 @@ const CUSTOM_RSS_URL={
   // rwandatoday.africa moved to NO_RSS_SITES (broken feed republishes stale articles)
   "hiiraan.com":          "https://www.hiiraan.com/rss.aspx",
   "radiotamazuj.org":     "https://radiotamazuj.org/en/rss.xml",
-  "sudantribune.com":     "https://www.sudantribune.com/spip.php?page=backend",
   "darfur24.com":         "https://darfur24.com/feed/",
+  "mustaqbalmedia.net":   "https://mustaqbalmedia.net/en/rss",
+  "aa.com.tr":            "https://www.aa.com.tr/en/rss/default?cat=africa",
+  "en.majalla.com":       "https://en.majalla.com/rss.xml",
+  "citizen.co.za":        "https://citizen.co.za/feed/",
+  "heraldonline.co.zw":   "https://heraldonline.co.zw/feed/",
   "radiodabanga.org":     "https://www.radiodabanga.org/en/rss.xml",
   "ewn.co.za":            "https://ewn.co.za/RSS",
   "news24.com":           "https://feeds.24.com/articles/news24/SouthAfrica/rss",
   "mg.co.za":             "https://mg.co.za/feed/",
   "iol.co.za":            "https://www.iol.co.za/rss/news",
   "timeslive.co.za":      "https://www.timeslive.co.za/rss/",
-  "sabcnews.com":         "https://www.sabcnews.com/sabcnews/feed/",
+  "sabcnews.com":         "https://sabcnews.com/?feed=rss2",
   "bulawayo24.com":       "https://bulawayo24.com/rss/",
   "herald.co.zw":         "https://www.herald.co.zw/feed/",
-  "thecitizen.co.tz":     "https://www.thecitizen.co.tz/feed/",
+  "thecitizen.co.tz":     "https://thecitizen.co.tz/rss.xml",
   "mwananchi.co.tz":      "https://www.mwananchi.co.tz/mw/rss",
-  "namibian.com.na":      "https://www.namibian.com.na/feed/",
   "neweralive.na":        "https://neweralive.na/feed/",
   "thenewhumanitarian.org":"https://www.thenewhumanitarian.org/rss.xml",
   "theafricareport.com":  "https://www.theafricareport.com/feed/",
