@@ -1220,7 +1220,8 @@ async function fetchCountryMediaRSS(countries,days){
   }
 
   const entries=[...siteMap.entries()];
-  const BATCH=8;
+  // Raised from 8 for the same reason — same-origin HTTP/2 proxy.
+  const BATCH=16;
   for(let i=0;i<entries.length;i+=BATCH){
     await Promise.all(entries.slice(i,i+BATCH).map(([s,c])=>fetchSite(s,c)));
     if(i+BATCH<entries.length)await new Promise(r=>setTimeout(r,200));
@@ -1290,16 +1291,20 @@ async function fetchGoogleNews(countries,days){
     for(const site of PAN_AFRICAN){
       queries.push({q:`site:${site} (${MASTER_KW})`,country:"ROSEA region"});
     }
-    // Key international wires: per-country queries for BBC and Al Jazeera so articles
-    // naming a specific country are tagged correctly rather than falling to "ROSEA region"
-    for(const c of countries){
-      queries.push({q:`site:bbc.com "${c}"`,country:c});
-      queries.push({q:`site:aljazeera.com "${c}"`,country:c});
+    // Key international wires, batched in country chunks rather than one query each.
+    // Per-country was 2x26=52 queries for coverage a 6-country OR group gets just as well.
+    for(let i=0;i<countries.length;i+=5){
+      const chunk=countries.slice(i,i+5).map(c=>`"${c}"`).join(" OR ");
+      queries.push({q:`site:bbc.com (${chunk})`,country:"ROSEA region"});
+      queries.push({q:`site:aljazeera.com (${chunk})`,country:"ROSEA region"});
     }
-    // Country media sites
+    // Country media: only outlets with no usable RSS feed. The rest are already
+    // fetched directly in fetchCountryMediaRSS, so a site: query for them was
+    // ~119 duplicate round trips and the single largest cause of slow scans.
     if(useMedia){
       for(const c of countries){
-        for(const site of (COUNTRY_MEDIA[idMap[c]]||[])) queries.push({q:`site:${site}`,country:c});
+        for(const site of (COUNTRY_MEDIA[idMap[c]]||[]))
+          if(NO_RSS_SITES.has(site)) queries.push({q:`site:${site}`,country:c});
       }
     }
   }
@@ -1374,9 +1379,11 @@ async function fetchGoogleNews(countries,days){
   }
 
   // Batch params per mode
-  const BATCH=mode==="quick"?18:mode==="standard"?14:7;
-  const DELAY=mode==="quick"?60:mode==="standard"?100:220;
-  const TO   =mode==="quick"?10000:mode==="standard"?10000:12000;
+  // Raised from 18/14/7. The proxy is same-origin over HTTP/2 now, so requests
+  // multiplex on one connection instead of competing for browser sockets.
+  const BATCH=mode==="quick"?28:mode==="standard"?24:12;
+  const DELAY=mode==="quick"?50:mode==="standard"?60:150;
+  const TO   =mode==="quick"?8000:mode==="standard"?8000:11000;
   // Use when:7d as minimum so proxies see enough articles; client-side filter enforces exact window.
   // Smaller values (when:1d) cause Google to return 0 results through proxy IPs.
   const whenDays=Math.max(days,7);
